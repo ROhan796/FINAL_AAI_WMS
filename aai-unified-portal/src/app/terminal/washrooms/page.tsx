@@ -1,29 +1,108 @@
 'use client'
 
-import React, { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useTerminalStore, useLevelStore } from '@/lib/store'
-import { useLevelWashrooms } from '@/hooks/useTerminals'
 import PageHeader from '@/components/ui/PageHeader'
 import DataCard from '@/components/ui/DataCard'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import EmptyState from '@/components/ui/EmptyState'
 import TerminalSelector from '@/components/shell/TerminalSelector'
 import LevelNavigator from '@/components/terminal/LevelNavigator'
-import { statusColor, severityColor } from '@/lib/utils'
+import { statusColor } from '@/lib/utils'
 import { Bath, Search, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useRealtime } from '@/hooks/useRealtime'
 
-export default function Washrooms() {
+interface DAWh {
+  device_id: string
+  type: string
+  whi: number
+  status: string
+  sensors: {
+    nh3: number
+    h2s: number
+    temperature: number
+    humidity: number
+    occupancy_inside: number
+    throughput: number
+  }
+  penalties: {
+    nh3: number
+    h2s: number
+    humidity: number
+    temperature: number
+  }
+}
+
+function WashroomsContent() {
   const router = useRouter()
-  const { selectedTerminal } = useTerminalStore()
-  const { selectedLevel } = useLevelStore()
-  const { data: washrooms, isLoading, error } = useLevelWashrooms(selectedTerminal, selectedLevel)
+  const searchParams = useSearchParams()
+  const { selectedTerminal, setSelectedTerminal } = useTerminalStore()
+  const { selectedLevel, setSelectedLevel } = useLevelStore()
+  const [washrooms, setWashrooms] = useState<DAWh[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const { telemetry } = useRealtime()
+
+  // Read URL params and override store values if provided
+  useEffect(() => {
+    const terminalParam = searchParams.get('terminal')
+    const levelParam = searchParams.get('level')
+    if (terminalParam && terminalParam !== selectedTerminal) {
+      setSelectedTerminal(terminalParam as any)
+    }
+    if (levelParam) {
+      const levelNum = parseInt(levelParam)
+      if (!isNaN(levelNum) && levelNum !== selectedLevel) {
+        setSelectedLevel(levelNum as any)
+      }
+    }
+  }, [searchParams, setSelectedTerminal, setSelectedLevel])
+
+  const fetchData = useCallback(async () => {
+    if (!selectedTerminal || !selectedLevel) return
+    try {
+      const res = await fetch(`/api/da/levels/${selectedTerminal}/L${selectedLevel}`, { cache: 'no-store' })
+      if (res.ok) {
+        const data = await res.json()
+        setWashrooms(data.washrooms || [])
+        setError(false)
+      } else {
+        setError(true)
+      }
+    } catch (err) {
+      console.error('Error fetching washrooms from DA Engine:', err)
+      setError(true)
+    } finally {
+      setLoading(false)
+    }
+  }, [selectedTerminal, selectedLevel])
+
+  useEffect(() => {
+    setLoading(true)
+    fetchData()
+    intervalRef.current = setInterval(fetchData, 30000)
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+  }, [fetchData])
+
+  useEffect(() => {
+    if (telemetry.length > 0 && washrooms.length > 0) {
+      setWashrooms(prev => prev.map(w => {
+        const rt = telemetry.find(t => t.device_id === w.device_id)
+        if (rt) {
+          return { ...w, whi: rt.whi_score, status: rt.whi_score >= 80 ? 'Good' : rt.whi_score >= 60 ? 'Fair' : 'Critical' }
+        }
+        return w
+      }))
+    }
+  }, [telemetry])
 
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
 
-  if (isLoading) {
+  if (loading) {
     return <LoadingSpinner text="Querying terminal washroom nodes..." />
   }
 
@@ -42,21 +121,17 @@ export default function Washrooms() {
   const filteredWashrooms = washrooms.filter((w) => {
     const matchesSearch =
       w.device_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      w.label.toLowerCase().includes(searchTerm.toLowerCase())
-
-    const stateStatus = w.state?.occupancy_status || 'OUT_OF_ORDER'
-    const matchesStatus = statusFilter === 'ALL' || stateStatus === statusFilter
+      w.type.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesStatus = statusFilter === 'ALL' || w.status.toUpperCase() === statusFilter.toUpperCase()
     return matchesSearch && matchesStatus
   })
 
-  // stats
   const total = washrooms.length
-  const validStates = washrooms.filter(w => w.state)
-  const avgWhi = validStates.length > 0 
-    ? Math.round(validStates.reduce((acc, curr) => acc + (curr.state?.whi_score ?? 0), 0) / validStates.length) 
-    : 85
-  const critical = washrooms.filter(w => w.state && w.state.whi_score < 60).length
-  const cleaning = washrooms.filter(w => w.state && w.state.occupancy_status === 'CLEANING').length
+  const avgWhi = total > 0
+    ? Math.round(washrooms.reduce((acc, curr) => acc + curr.whi, 0) / total)
+    : 0
+  const critical = washrooms.filter(w => w.whi < 60).length
+  const cleaning = washrooms.filter(w => w.status === 'Fair').length
 
   return (
     <div className="space-y-6 font-sans text-sm text-slate-700">
@@ -65,13 +140,11 @@ export default function Washrooms() {
         subtitle="Operational washroom unit directories, hygiene evaluations, and scheduled clean cycles."
       />
 
-      {/* Selector and Navigator */}
       <div className="flex flex-col gap-4">
         <TerminalSelector />
         <LevelNavigator />
       </div>
 
-      {/* Quick Metrics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-white border border-slate-200 p-5 rounded-2xl flex flex-col gap-1.5 shadow-sm hover:shadow-md transition-shadow">
           <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Total Units</p>
@@ -86,7 +159,7 @@ export default function Washrooms() {
           <div className="flex items-end justify-between">
             <h3 className={cn(
               "text-3xl font-bold font-mono",
-              avgWhi < 60 ? 'text-red-655' : avgWhi < 75 ? 'text-amber-600' : 'text-green-600'
+              avgWhi < 60 ? 'text-red-655' : avgWhi < 80 ? 'text-amber-600' : 'text-green-600'
             )}>{avgWhi}%</h3>
             <span className="text-xs text-slate-550 font-medium">Level Average</span>
           </div>
@@ -109,7 +182,6 @@ export default function Washrooms() {
         </div>
       </div>
 
-      {/* Management Table Container */}
       <DataCard
         title="Active Facilities Management"
         subtitle={`Operator overview across cluster ${selectedTerminal} - Level ${selectedLevel}.`}
@@ -131,10 +203,9 @@ export default function Washrooms() {
               className="bg-white border border-slate-350 rounded-xl px-3 py-2 text-xs text-slate-805 cursor-pointer focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
             >
               <option value="ALL">All Statuses</option>
-              <option value="VACANT">Vacant</option>
-              <option value="OCCUPIED">Occupied</option>
-              <option value="CLEANING">Cleaning</option>
-              <option value="OUT_OF_ORDER">Out of Order</option>
+              <option value="Good">Good</option>
+              <option value="Fair">Fair</option>
+              <option value="Critical">Critical</option>
             </select>
             <button
               onClick={() => router.push('/terminal/incidents')}
@@ -152,39 +223,30 @@ export default function Washrooms() {
             <table className="w-full text-left">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs">
                 <tr>
-                  <th className="px-6 py-4 font-semibold uppercase tracking-wider">Label</th>
                   <th className="px-6 py-4 font-semibold uppercase tracking-wider">Device ID</th>
                   <th className="px-6 py-4 font-semibold uppercase tracking-wider">Type</th>
                   <th className="px-6 py-4 font-semibold uppercase tracking-wider">WHI Score</th>
-                  <th className="px-6 py-4 font-semibold uppercase tracking-wider">Last Cleaned</th>
+                  <th className="px-6 py-4 font-semibold uppercase tracking-wider">NH3 (ppm)</th>
                   <th className="px-6 py-4 font-semibold uppercase tracking-wider">Status</th>
                   <th className="px-6 py-4 font-semibold uppercase tracking-wider text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
                 {filteredWashrooms.map((w) => {
-                  const whi = w.state?.whi_score ?? 100
-                  const status = w.state?.occupancy_status ?? 'OUT_OF_ORDER'
-                  
+                  const whi = Math.round(w.whi)
                   const healthColorClass =
-                    whi < 60 ? 'text-red-655' : whi < 75 ? 'text-amber-600' : 'text-green-600'
-
+                    whi < 60 ? 'text-red-655' : whi < 80 ? 'text-amber-600' : 'text-green-600'
                   const healthBarClass =
-                    whi < 60 ? 'bg-red-500' : whi < 75 ? 'bg-amber-500' : 'bg-green-500'
-
-                  const lastCleanedDate = w.state?.last_cleaned_at 
-                    ? new Date(w.state.last_cleaned_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
-                    : 'Not yet'
+                    whi < 60 ? 'bg-red-500' : whi < 80 ? 'bg-amber-500' : 'bg-green-500'
 
                   return (
                     <tr
-                      key={w.id}
+                      key={w.device_id}
                       onClick={() => handleRowClick(w.device_id)}
                       className="hover:bg-slate-50 transition-colors cursor-pointer group"
                     >
-                      <td className="px-6 py-4 text-sm font-bold text-slate-900">{w.label}</td>
                       <td className="px-6 py-4 font-mono font-bold text-slate-900">{w.device_id}</td>
-                      <td className="px-6 py-4 text-xs font-semibold uppercase text-slate-500">{w.unit_type}</td>
+                      <td className="px-6 py-4 text-xs font-semibold uppercase text-slate-500">{w.type}</td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
                           <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
@@ -193,10 +255,10 @@ export default function Washrooms() {
                           <span className={cn("text-xs font-bold font-mono", healthColorClass)}>{whi}%</span>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-xs text-slate-550 font-mono">{lastCleanedDate}</td>
+                      <td className="px-6 py-4 text-xs text-slate-550 font-mono">{w.sensors.nh3.toFixed(1)}</td>
                       <td className="px-6 py-4">
-                        <span className={cn("px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border", statusColor(status))}>
-                          {status.replace('_', ' ')}
+                        <span className={cn("px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border", statusColor(w.status))}>
+                          {w.status}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
@@ -211,5 +273,13 @@ export default function Washrooms() {
         )}
       </DataCard>
     </div>
+  )
+}
+
+export default function Washrooms() {
+  return (
+    <Suspense fallback={<LoadingSpinner text="Loading washroom data..." />}>
+      <WashroomsContent />
+    </Suspense>
   )
 }

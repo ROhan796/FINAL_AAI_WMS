@@ -5,7 +5,16 @@ import {
 } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 
-// ── TABLES ──
+// ── DESIGN NOTE ──
+// Neon PostgreSQL serves TWO roles:
+//   1. PRIMARY: app_users, audit_logs, system_logs, system_settings (auth + app config)
+//   2. FALLBACK: terminals, levels, washroom_units, etc. (mirror of DA Engine data)
+// The DA Engine is the source of truth for analytics/telemetry data.
+// Fallback tables exist only to provide graceful degradation when DA Engine is offline.
+
+// ── FALLBACK TABLES (DA Engine is source of truth) ──
+// These tables mirror DA Engine data for graceful degradation when DA Engine is offline.
+// They are NOT actively written to — they serve as read-only fallback queries.
 
 export const terminals = pgTable('terminals', {
   id:           varchar('id', { length: 10 }).primaryKey(),   // 'T1' | 'T2' | 'CGO'
@@ -114,6 +123,8 @@ export const whiHistory = pgTable('whi_history', {
   max_whi:   real('max_whi').notNull(),
   total_occupancy_count: integer('total_occupancy_count').notNull().default(0),
 }, (t) => ({ uniq: unique().on(t.device_id, t.date) }))
+
+// ── PRIMARY TABLES (Auth + App Config) ──
 
 export const appUsers = pgTable('app_users', {
   id:        text('id').primaryKey(),

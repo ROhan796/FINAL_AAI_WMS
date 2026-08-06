@@ -1,0 +1,50 @@
+{
+  "success": [],
+  "failed": [
+    {
+      "device": "T2-L4-PPD-028",
+      "status": 403,
+      "error": "{'success': False, 'message': \"Device ID 'T2-L4-PPD-028' is not authorized for this API key.\", 'error_code': 'DEVICE_NOT_ALLOWED'}"
+    },
+    {
+      "device": "T2-L5-PPD-031",
+      "status": 403,
+      "error": "{'success': False, 'message': \"Device ID 'T2-L5-PPD-031' is not authorized for this API key.\", 'error_code': 'DEVICE_NOT_ALLOWED'}"
+    },
+    {
+      "device": "T2-L6-PPD-034",
+      "status": 403,
+      "error": "{'success': False, 'message': \"Device ID 'T2-L6-PPD-034' is not authorized for this API key.\", 'error_code': 'DEVICE_NOT_ALLOWED'}"
+    },
+    {
+      "device": "T3-L1-PPD-037",
+      "status": 403,
+      "error": "{'success': False, 'message': \"Device ID 'T3-L1-PPD-037' is not authorized for this API key.\", 'error_code': 'DEVICE_NOT_ALLOWED'}"
+    },
+    {
+      "device": "T3-L2-PPD-040",
+      "status": 403,
+      "error": "{'success': False, 'message': \"Device ID 'T3-L2-PPD-040' is not authorized for this API key.\", 'error_code': 'DEVICE_NOT_ALLOWED'}"
+    },
+    {
+      "device": "T3-L3-PPD-043",
+      "status": 403,
+      "error": "{'success': False, 'message': \"Device ID 'T3-L3-PPD-043' is not authorized for this API key.\", 'error_code': 'DEVICE_NOT_ALLOWED'}"
+    },
+    {
+      "device": "T3-L4-PPD-046",
+      "status": 403,
+      "error": "{'success': False, 'message': \"Device ID 'T3-L4-PPD-046' is not authorized for this API key.\", 'error_code': 'DEVICE_NOT_ALLOWED'}"
+    },
+    {
+      "device": "T3-L5-PPD-049",
+      "status": 403,
+      "error": "{'success': False, 'message': \"Device ID 'T3-L5-PPD-049' is not authorized for this API key.\", 'error_code': 'DEVICE_NOT_ALLOWED'}"
+    },
+    {
+      "device": "T3-L6-PPD-052",
+      "status": 403,
+      "error": "{'success': False, 'message': \"Device ID 'T3-L6-PPD-052' is not authorized for this API key.\", 'error_code': 'DEVICE_NOT_ALLOWED'}"
+    }
+  ]
+}

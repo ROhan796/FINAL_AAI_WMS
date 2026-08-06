@@ -1,30 +1,69 @@
 'use client'
 
-import React, { Suspense } from 'react'
+import React, { Suspense, useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useQuery } from '@tanstack/react-query'
 import PageHeader from '@/components/ui/PageHeader'
 import DataCard from '@/components/ui/DataCard'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import EmptyState from '@/components/ui/EmptyState'
 import { ArrowLeft, ShieldAlert, Cpu, Wrench, RefreshCw, Thermometer, Droplet, AlertTriangle, Wind } from 'lucide-react'
-import { cn, computeWHI } from '@/lib/utils'
+import { cn } from '@/lib/utils'
+import { useRealtime } from '@/hooks/useRealtime'
 
 function WashroomDetailContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const deviceId = searchParams.get('device_id') || 'T2-L3-PPF-001'
+  const [unit, setUnit] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const { washrooms: realtimeWashrooms } = useRealtime()
 
-  const { data: unit, isLoading, error } = useQuery<any>({
-    queryKey: ['washrooms', deviceId],
-    queryFn: () => fetch(`/api/washrooms/${deviceId}`).then((r) => {
-      if (!r.ok) throw new Error('Failed to load washroom detail')
-      return r.json()
-    }),
-    staleTime: 10000,
-  })
+  const fetchData = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/da/washrooms/${deviceId}`, { cache: 'no-store' })
+      if (res.ok) {
+        setUnit(await res.json())
+        setError(false)
+      } else {
+        setError(true)
+      }
+    } catch {
+      setError(true)
+    } finally {
+      setLoading(false)
+    }
+  }, [deviceId])
 
-  if (isLoading) {
+  useEffect(() => {
+    fetchData()
+    intervalRef.current = setInterval(fetchData, 30000)
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+  }, [fetchData])
+
+  useEffect(() => {
+    if (realtimeWashrooms.length > 0) {
+      const match = realtimeWashrooms.find((w: any) => w.device_id === deviceId)
+      if (match) {
+        setUnit((prev: any) => ({
+          ...prev,
+          whi: match.whi,
+          status: match.status,
+          latest_sensors: {
+            ...(prev?.latest_sensors || {}),
+            temperature: match.temperature_celsius,
+            humidity: match.humidity_pct,
+            nh3: match.ammonia_ppm,
+            occupancy: match.occupancy_count,
+            battery_level: match.battery_pct,
+          },
+        }))
+      }
+    }
+  }, [realtimeWashrooms, deviceId])
+
+  if (loading) {
     return <LoadingSpinner text="Retrieving washroom node telemetry..." />
   }
 
@@ -42,8 +81,9 @@ function WashroomDetailContent() {
     )
   }
 
-  const state = unit.state || {}
-  const whi = state.whi_score ?? 100
+  const sensors = unit.sensors || {}
+  const penalties = unit.penalties || {}
+  const whi = Math.round(unit.whi ?? 100)
   const isCritical = whi < 60
 
   const getConsumableColor = (val: number) => {
@@ -65,22 +105,20 @@ function WashroomDetailContent() {
 
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <PageHeader
-          title={unit.label}
-          subtitle={`Device Code: ${unit.device_id} · Location: ${unit.location_desc || 'Main Level Zone'}`}
+          title={`${unit.terminal} ${unit.level} ${unit.type}`}
+          subtitle={`Device Code: ${unit.device_id}`}
         />
         <div className="bg-white border border-slate-200 px-4 py-2.5 rounded-2xl flex items-center gap-3 shadow-sm shrink-0">
           <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">HYGIENE INDEX</span>
           <span className={cn(
             "text-2xl font-black font-mono",
-            whi < 60 ? 'text-red-600' : whi < 75 ? 'text-amber-600' : 'text-green-600'
+            whi < 60 ? 'text-red-600' : whi < 80 ? 'text-amber-600' : 'text-green-600'
           )}>{whi}%</span>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Columns - Telemetry details */}
         <div className="lg:col-span-8 space-y-6">
-          {/* Environmental Sensors */}
           <DataCard title="Environmental Telemetry" subtitle="Real-time air quality, thermal and moisture levels.">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
@@ -88,7 +126,7 @@ function WashroomDetailContent() {
                   <Thermometer size={14} />
                   <span className="text-[10px] font-bold uppercase tracking-wider">Temperature</span>
                 </div>
-                <p className="text-lg font-black text-slate-800 font-mono">{state.temp_celsius?.toFixed(1) ?? '22.0'}°C</p>
+                <p className="text-lg font-black text-slate-800 font-mono">{sensors.temperature?.toFixed(1) ?? '—'}°C</p>
               </div>
 
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
@@ -96,7 +134,7 @@ function WashroomDetailContent() {
                   <Droplet size={14} />
                   <span className="text-[10px] font-bold uppercase tracking-wider">Humidity</span>
                 </div>
-                <p className="text-lg font-black text-slate-800 font-mono">{state.humidity_pct?.toFixed(0) ?? '45'}%</p>
+                <p className="text-lg font-black text-slate-800 font-mono">{sensors.humidity?.toFixed(0) ?? '—'}%</p>
               </div>
 
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
@@ -106,81 +144,75 @@ function WashroomDetailContent() {
                 </div>
                 <p className={cn(
                   "text-lg font-black font-mono",
-                  state.ammonia_ppm > 50 ? "text-red-600" : "text-slate-800"
-                )}>{state.ammonia_ppm?.toFixed(1) ?? '15.0'} PPM</p>
+                  sensors.nh3 > 8 ? "text-red-600" : sensors.nh3 > 4 ? "text-amber-600" : "text-slate-800"
+                )}>{sensors.nh3?.toFixed(1) ?? '—'} PPM</p>
               </div>
 
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
                 <div className="flex items-center gap-1.5 text-slate-500 mb-1.5">
                   <Cpu size={14} />
-                  <span className="text-[10px] font-bold uppercase tracking-wider">CO2 Level</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider">H2S</span>
                 </div>
-                <p className="text-lg font-black text-slate-800 font-mono">{state.co2_ppm?.toFixed(0) ?? '400'} PPM</p>
+                <p className={cn(
+                  "text-lg font-black font-mono",
+                  sensors.h2s > 5 ? "text-red-600" : sensors.h2s > 3 ? "text-amber-600" : "text-slate-800"
+                )}>{sensors.h2s?.toFixed(1) ?? '—'} PPM</p>
               </div>
             </div>
           </DataCard>
 
-          {/* Consumable Levels */}
-          <DataCard title="Consumable Adequacy" subtitle="Current status of dispensers and soap reservoirs.">
+          <DataCard title="Penalties Applied" subtitle="Current WHI penalty breakdown per category.">
             <div className="space-y-4">
-              <div>
-                <div className="flex justify-between items-center text-xs font-semibold mb-1">
-                  <span>Liquid Soap</span>
-                  <span className="font-mono font-bold">{state.soap_pct?.toFixed(0) ?? '75'}%</span>
+              {[
+                { label: 'NH3 Penalty', value: penalties.nh3 ?? 0, max: 40 },
+                { label: 'H2S Penalty', value: penalties.h2s ?? 0, max: 25 },
+                { label: 'Humidity Penalty', value: penalties.humidity ?? 0, max: 10 },
+                { label: 'Temperature Penalty', value: penalties.temperature ?? 0, max: 20 },
+              ].map((p) => (
+                <div key={p.label}>
+                  <div className="flex justify-between items-center text-xs font-semibold mb-1">
+                    <span>{p.label}</span>
+                    <span className="font-mono font-bold">{p.value}</span>
+                  </div>
+                  <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+                    <div className={cn("h-full", p.value > 10 ? 'bg-red-500' : p.value > 0 ? 'bg-amber-500' : 'bg-green-500')} style={{ width: `${Math.min(100, (p.value / p.max) * 100)}%` }} />
+                  </div>
                 </div>
-                <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
-                  <div className={cn("h-full", getConsumableColor(state.soap_pct ?? 75))} style={{ width: `${state.soap_pct ?? 75}%` }} />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between items-center text-xs font-semibold mb-1">
-                  <span>Paper Towels</span>
-                  <span className="font-mono font-bold">{state.paper_pct?.toFixed(0) ?? '70'}%</span>
-                </div>
-                <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
-                  <div className={cn("h-full", getConsumableColor(state.paper_pct ?? 70))} style={{ width: `${state.paper_pct ?? 70}%` }} />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between items-center text-xs font-semibold mb-1">
-                  <span>Sanitizer gel</span>
-                  <span className="font-mono font-bold">{state.sanitizer_pct?.toFixed(0) ?? '80'}%</span>
-                </div>
-                <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
-                  <div className={cn("h-full", getConsumableColor(state.sanitizer_pct ?? 80))} style={{ width: `${state.sanitizer_pct ?? 80}%` }} />
-                </div>
-              </div>
+              ))}
             </div>
           </DataCard>
         </div>
 
-        {/* Right Columns - Info widgets */}
         <div className="lg:col-span-4 space-y-6">
-          {/* Node Diagnostics */}
-          <DataCard title="Hardware Diagnostics">
+          <DataCard title="Node Info">
             <div className="space-y-3 text-xs">
               <div className="flex justify-between py-1.5 border-b border-slate-100">
-                <span className="text-slate-500 font-medium">Terminal Node</span>
-                <span className="font-bold text-slate-800">{unit.terminal_id}</span>
+                <span className="text-slate-500 font-medium">Terminal</span>
+                <span className="font-bold text-slate-800">{unit.terminal}</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100">
-                <span className="text-slate-500 font-medium">Level Level</span>
-                <span className="font-bold text-slate-800">L{unit.level_id}</span>
+                <span className="text-slate-500 font-medium">Level</span>
+                <span className="font-bold text-slate-800">{unit.level}</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100">
-                <span className="text-slate-500 font-medium">Battery Level</span>
-                <span className="font-bold text-slate-800 font-mono">{state.battery_level?.toFixed(0) ?? '98'}%</span>
+                <span className="text-slate-500 font-medium">Type</span>
+                <span className="font-bold text-slate-800">{unit.type}</span>
+              </div>
+              <div className="flex justify-between py-1.5 border-b border-slate-100">
+                <span className="text-slate-500 font-medium">Status</span>
+                <span className="font-bold text-slate-800">{unit.status}</span>
+              </div>
+              <div className="flex justify-between py-1.5 border-b border-slate-100">
+                <span className="text-slate-500 font-medium">Occupancy</span>
+                <span className="font-bold text-slate-800 font-mono">{sensors.occupancy_inside ?? 0}</span>
               </div>
               <div className="flex justify-between py-1.5">
-                <span className="text-slate-500 font-medium">Signal Strength</span>
-                <span className="font-bold text-slate-800 font-mono">{state.signal_strength?.toFixed(0) ?? '-65'} dBm</span>
+                <span className="text-slate-500 font-medium">Throughput</span>
+                <span className="font-bold text-slate-800 font-mono">{sensors.throughput ?? 0}</span>
               </div>
             </div>
           </DataCard>
 
-          {/* Controller Actions */}
           <DataCard title="Remote Operations">
             <div className="space-y-3">
               <button

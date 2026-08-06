@@ -488,7 +488,7 @@ export default function PublicLandingPage() {
               </div>
               <div className="flex justify-between items-center text-xs">
                 <span className="text-slate-400 font-bold uppercase">Password:</span>
-                <span className="font-mono text-slate-650 font-bold">AAI@demo2025</span>
+                <span className="font-mono text-slate-650 font-bold">{process.env.NEXT_PUBLIC_DEMO_PASSWORD || 'Not configured'}</span>
               </div>
             </div>
           </div>
@@ -519,7 +519,7 @@ export default function PublicLandingPage() {
               </div>
               <div className="flex justify-between items-center text-xs">
                 <span className="text-slate-400 font-bold uppercase">Password:</span>
-                <span className="font-mono text-slate-650 font-bold">AAI@demo2025</span>
+                <span className="font-mono text-slate-650 font-bold">{process.env.NEXT_PUBLIC_DEMO_PASSWORD || 'Not configured'}</span>
               </div>
             </div>
           </div>
@@ -550,7 +550,7 @@ export default function PublicLandingPage() {
               </div>
               <div className="flex justify-between items-center text-xs">
                 <span className="text-slate-400 font-bold uppercase">Password:</span>
-                <span className="font-mono text-slate-650 font-bold">AAI@demo2025</span>
+                <span className="font-mono text-slate-650 font-bold">{process.env.NEXT_PUBLIC_DEMO_PASSWORD || 'Not configured'}</span>
               </div>
             </div>
           </div>

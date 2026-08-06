@@ -23,9 +23,9 @@ export default async function AdminLayout({
     .where(sql`LOWER(${appUsers.email}) = LOWER(${email})`)
     .limit(1)
 
-  const role = dbUser[0]?.role || (user.publicMetadata as any)?.role || 'ADMIN'
+  const role = dbUser[0]?.role || (user.publicMetadata as any)?.role
 
-  if (role !== 'ADMIN') {
+  if (!role || role !== 'ADMIN') {
     redirect(`/unauthorized?required=ADMIN&current=${role || 'NONE'}`)
   }
 

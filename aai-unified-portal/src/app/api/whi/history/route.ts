@@ -17,7 +17,7 @@ export async function GET(request: Request) {
 
   try {
     try {
-      const daUrl = process.env.DA_ENGINE_URL || 'http://localhost:8000'
+      const daUrl = process.env.DA_ENGINE_URL || process.env.NEXT_PUBLIC_DA_ENGINE_URL || 'http://localhost:8001'
       const response = await fetch(`${daUrl}/api/trends?days=${days}`, { signal: AbortSignal.timeout(1500) })
       if (response.ok) {
         const trends = await response.json()

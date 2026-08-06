@@ -1,33 +1,43 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { UserButton, useUser } from '@clerk/nextjs'
 import { Bell, Search, X, CheckCheck } from 'lucide-react'
+import { useRealtime } from '@/hooks/useRealtime'
 import type { Role } from '@/types'
 
 interface HeaderProps {
   role?: Role
 }
 
+interface Notification {
+  id: number
+  title: string
+  time: string
+  read: boolean
+  type: 'CRITICAL' | 'WARNING' | 'SUCCESS' | 'INFO'
+}
+
 export default function Header({ role }: HeaderProps) {
   const { user } = useUser()
   const [showNotifications, setShowNotifications] = useState(false)
-  const [notifications, setNotifications] = useState([
-    { id: 1, title: 'Critical: Ammonia Level Alert', time: '2m ago',
-      read: false, type: 'CRITICAL' },
-    { id: 2, title: 'Device D009 went offline', time: '15m ago',
-      read: false, type: 'WARNING' },
-    { id: 3, title: 'WHI score below threshold — W6', time: '32m ago',
-      read: false, type: 'CRITICAL' },
-    { id: 4, title: 'Cleaning cycle completed — W3', time: '1h ago',
-      read: true, type: 'SUCCESS' },
-    { id: 5, title: 'New incident assigned to you', time: '2h ago',
-      read: true, type: 'INFO' },
-  ])
+  const [localNotifs, setLocalNotifs] = useState<Notification[]>([])
+  const { incidents, connected } = useRealtime()
+
+  const notifications = useMemo(() => {
+    if (localNotifs.length > 0) return localNotifs
+    return incidents.slice(0, 5).map((inc, i) => ({
+      id: i + 1,
+      title: inc.description || `${inc.severity || 'INFO'}: ${inc.incident_type || 'Incident'} on ${inc.device_id || inc.washroom_id || 'Unknown'}`,
+      time: inc.timestamp ? new Date(inc.timestamp).toLocaleTimeString() : 'Just now',
+      read: false,
+      type: (inc.severity === 'CRITICAL' ? 'CRITICAL' : inc.severity === 'HIGH' ? 'WARNING' : inc.severity === 'MEDIUM' ? 'WARNING' : 'INFO') as Notification['type'],
+    }))
+  }, [incidents, localNotifs])
 
   const unreadCount = notifications.filter(n => !n.read).length
 
   function markAllRead() {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })))
+    setLocalNotifs(prev => prev.length > 0 ? prev.map(n => ({ ...n, read: true })) : [])
   }
 
   return (
@@ -104,7 +114,7 @@ export default function Header({ role }: HeaderProps) {
                       key={notif.id}
                       className={`px-4 py-3 hover:bg-slate-50 transition-colors cursor-pointer ${!notif.read ? 'bg-blue-50/30' : ''}`}
                       onClick={() => {
-                        setNotifications(prev =>
+                        setLocalNotifs(prev =>
                           prev.map(n => n.id === notif.id ? { ...n, read: true } : n)
                         )
                       }}

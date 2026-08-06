@@ -19,4 +19,20 @@ services:
       - CACHE_TTL_SECONDS=${CACHE_TTL_SECONDS:-60}
       - WHI_HISTORY_BUFFER_SIZE=${WHI_HISTORY_BUFFER_SIZE:-100}
       - CORS_ALLOW_ORIGIN=http://localhost:3000
+      - REDIS_HOST=washroom-redis
+      - REDIS_PORT=6379
+      - REDIS_DB=1
+      - REDIS_PASSWORD=35d917a9b4e47447f2ec4b6ec3944e51
+      - WMS_PG_HOST=washroom-timescaledb
+      - WMS_PG_PORT=5432
+      - WMS_PG_DB=washroom_db
+      - WMS_PG_USER=postgres
+      - WMS_PG_PASSWORD=6cdab6f3d5270c9739ba920d3e0b2016
     restart: always
+    networks:
+      - data
+
+networks:
+  data:
+    name: data
+    external: true

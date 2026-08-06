@@ -85,6 +85,8 @@ export default function SignUpPage() {
           </div>
 
           <SignUp
+            routing="path"
+            path="/sign-up"
             forceRedirectUrl="/api/auth/redirect"
             appearance={{
               variables: {

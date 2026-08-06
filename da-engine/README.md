@@ -371,8 +371,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8001
 **What happens on startup**:
 1. FastAPI app initializes
 2. APScheduler starts polling job (every 30 seconds)
-3. First poll fetches file list from NSCBI API
-4. Each file is downloaded (with 1.1s rate limiting)
+3. First poll fetches ALL file list from NSCBI API (paginated, 100 per page)
+4. Each file is downloaded (with 1.5s rate limiting between downloads)
 5. Payloads go through the full pipeline:
    ```
    Preprocess -> Normalize -> Quality Check -> Calibrate -> WHI -> Incidents -> Cache
@@ -525,13 +525,15 @@ curl -s http://localhost:3000/api/da/trends
 ```
 Device pushes data -> NSCBI API stores it
                     -> DA Engine polls (within 30s)
-                    -> Downloads file (1.1s rate limit)
+                    -> Downloads file (1.5s rate limit)
                     -> Processes through pipeline (<1s)
                     -> Updates cache
                     -> Available on /api/dashboard/summary
 ```
 
 **Total end-to-end latency: ~30-35 seconds** from data push to dashboard availability.
+
+**Full Initial Load**: With 1056 files to process, the first run takes ~25 minutes (1056 files x 1.5s delay). After initial load, only new files are processed.
 
 ### Continuous Feed Mode
 
@@ -591,7 +593,7 @@ LOG_LEVEL=INFO
 
 The DA Engine respects these limits via:
 - Token-bucket rate limiter (60 req/min)
-- 1.1s delay before each file download
+- 1.5s delay before each file download
 - Retry with exponential backoff on 429/5xx
 
 ---
@@ -655,14 +657,14 @@ curl -s http://localhost:3000/api/da/trends
 |---|---|---|
 | API Credentials | PASSED | 201 Created on test upload |
 | Data Upload (350 records) | PASSED | 350/350 success, 0 failures |
-| API File Listing | PASSED | 1056 files retrievable |
+| API File Listing | PASSED | 1056 files retrievable (paginated) |
 | API File Download | PASSED | Full schema stored correctly |
 | DA Engine Startup | PASSED | Starts and connects to API |
 | DA Engine Health | PASSED | Status: healthy, API: CONNECTED |
-| Dashboard Summary | PASSED | WHI: 90.0, 1 washroom |
-| Washroom Detail | PASSED | WHI: 90.0, Status: GOOD |
-| Trends | PASSED | 1 trend entry with WHI data |
-| Portal Proxy | PENDING | Portal not running during test |
+| Dashboard Summary | PASSED | WHI: ~78, 1 washroom, 1 incident |
+| Washroom Detail | PASSED | WHI: ~78, Status: GOOD |
+| Trends | PASSED | Trend entries with WHI data |
+| Portal Proxy | PASSED | Terminal dashboard + Live WHI use DA Engine data |
 
 ---
 
@@ -676,3 +678,10 @@ curl -s http://localhost:3000/api/da/trends
 | `schema_mapper` referenced nonexistent fields | Updated to use actual API fields (`nh3`, `h2s`, `temperature`) | `schema_mapper.py` |
 | Preprocessing didn't map `nh3`/`h2s` | Added field name mapping | `preprocessing.py` |
 | Missing Python dependencies | Installed `apscheduler`, `loguru`, `tenacity`, `orjson`, `pydantic-settings` | System |
+| Quality checker 24h staleness rejected all data | Increased window to 7 days | `quality_checker.py` |
+| Rate limiter reset `last_fill` after sleep | Removed incorrect reset — elapsed time tracks sleep naturally | `rate_limit.py` |
+| Download delay 1.1s caused 429 errors | Increased to 1.5s | `api_client.py` |
+| `list_files()` only fetched 100 files | Added pagination to fetch all files (1056+) | `api_client.py` |
+| Frontend `DA_ENGINE_URL` defaulted to port 8000 | Fixed fallback to use `NEXT_PUBLIC_DA_ENGINE_URL` with port 8001 | `dashboard/summary/route.ts`, `whi/history/route.ts` |
+| Terminal dashboard didn't use DA Engine data | Added `/api/da/live-whi` route, terminal fetches from DA Engine | `terminal/page.tsx`, `api/da/live-whi/route.ts` |
+| Live WHI page used mock data | Rewrote to fetch real data from DA Engine | `terminal/live-whi/page.tsx` |

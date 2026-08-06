@@ -1,48 +1,119 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
-import { getIncidents, Incident } from '@/db'
 import PageHeader from '@/components/ui/PageHeader'
 import DataCard from '@/components/ui/DataCard'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import EmptyState from '@/components/ui/EmptyState'
 import { statusColor, cn } from '@/lib/utils'
 import { AlertTriangle, Clock, ArrowRight, ShieldAlert, CheckCircle2, Search, Plus } from 'lucide-react'
+import { useRealtime } from '@/hooks/useRealtime'
+
+interface DAIncident {
+  device_id: string
+  terminal: string
+  level: string
+  type: string
+  incident_type: string
+  severity: string
+  description: string
+  value: number
+  threshold: number
+  timestamp: string
+  whi: number
+}
+
+interface IncidentRow {
+  id: string
+  title: string
+  severity: string
+  status: string
+  terminal: string
+  assignedTo: string
+  timestamp: string
+}
 
 export default function ActiveIncidentsPage() {
   const [loading, setLoading] = useState(true)
-  const [incidents, setIncidents] = useState<Incident[]>([])
+  const [incidents, setIncidents] = useState<IncidentRow[]>([])
   const [searchTerm, setSearchTerm] = useState('')
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const { incidents: realtimeIncidents } = useRealtime()
 
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const data = await getIncidents()
-        setIncidents(data)
-      } catch (err) {
-        console.error('Error fetching incidents:', err)
-      } finally {
-        setLoading(false)
+  const fetchIncidents = useCallback(async () => {
+    try {
+      const res = await fetch('/api/da/incidents', { cache: 'no-store' })
+      if (res.ok) {
+        const data = await res.json()
+        const rows: IncidentRow[] = (Array.isArray(data) ? data : []).map((inc: DAIncident, idx: number) => ({
+          id: inc.device_id,
+          title: inc.description || inc.incident_type,
+          severity: inc.severity || (inc.whi < 30 ? 'CRITICAL' : inc.whi < 60 ? 'HIGH' : 'MEDIUM'),
+          status: 'OPEN',
+          terminal: inc.terminal,
+          assignedTo: 'Unassigned',
+          timestamp: inc.timestamp,
+        }))
+        setIncidents(rows)
       }
+    } catch (err) {
+      console.error('Error fetching incidents from DA Engine:', err)
+    } finally {
+      setLoading(false)
     }
-    loadData()
   }, [])
 
-  const handleAcknowledge = (id: string) => {
-    setIncidents(prev =>
-      prev.map((inc) =>
-        inc.id === id ? { ...inc, status: 'IN_PROGRESS', assignedTo: 'You (Operator)' } : inc
+  useEffect(() => {
+    fetchIncidents()
+    intervalRef.current = setInterval(fetchIncidents, 30000)
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+  }, [fetchIncidents])
+
+  useEffect(() => {
+    if (realtimeIncidents.length > 0) {
+      const merged: IncidentRow[] = realtimeIncidents.map((inc: any, idx: number) => ({
+        id: inc.device_id || inc.washroom_id || `unknown-${idx}`,
+        title: inc.description || inc.incident_type || 'Incident',
+        severity: inc.severity || (inc.whi < 30 ? 'CRITICAL' : inc.whi < 60 ? 'HIGH' : 'MEDIUM'),
+        status: 'OPEN',
+        terminal: inc.terminal || '',
+        assignedTo: 'Unassigned',
+        timestamp: inc.timestamp || new Date().toISOString(),
+      }))
+      setIncidents(prev => {
+        if (prev.length === 0) return merged
+        const existing = new Set(prev.map(p => p.id))
+        const newOnly = merged.filter(m => !existing.has(m.id))
+        return [...newOnly, ...prev].slice(0, 50)
+      })
+    }
+  }, [realtimeIncidents])
+
+  const handleAcknowledge = async (id: string) => {
+    try {
+      await fetch(`/api/wms/incidents/${id}/acknowledge`, { method: 'POST' })
+      setIncidents(prev =>
+        prev.map((inc) =>
+          inc.id === id ? { ...inc, status: 'IN_PROGRESS', assignedTo: 'You (Operator)' } : inc
+        )
       )
-    )
+    } catch (e) {
+      console.error('Failed to acknowledge incident:', e)
+    }
   }
 
-  const handleResolve = (id: string) => {
-    setIncidents(prev =>
-      prev.map((inc) =>
-        inc.id === id ? { ...inc, status: 'RESOLVED' } : inc
+  const handleResolve = async (id: string) => {
+    try {
+      await fetch(`/api/wms/incidents/${id}/resolve`, { method: 'POST' })
+      setIncidents(prev =>
+        prev.map((inc) =>
+          inc.id === id ? { ...inc, status: 'RESOLVED' } : inc
+        )
       )
-    )
+    } catch (e) {
+      console.error('Failed to resolve incident:', e)
+    }
   }
 
   const filteredIncidents = incidents.filter(
@@ -56,7 +127,6 @@ export default function ActiveIncidentsPage() {
     return <LoadingSpinner text="Retrieving operational incident databases..." />
   }
 
-  // derive stats from local state
   const critical = incidents.filter(x => x.severity === 'CRITICAL' && x.status !== 'RESOLVED').length
   const high = incidents.filter(x => x.severity === 'HIGH' && x.status !== 'RESOLVED').length
   const other = incidents.filter(x => (x.severity === 'MEDIUM' || x.severity === 'LOW') && x.status !== 'RESOLVED').length
@@ -89,7 +159,6 @@ export default function ActiveIncidentsPage() {
         }
       />
 
-      {/* Stats Row */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-white border border-slate-200 p-5 rounded-2xl flex items-center justify-between shadow-sm hover:shadow-md transition-shadow">
           <div>
@@ -132,7 +201,6 @@ export default function ActiveIncidentsPage() {
         </div>
       </div>
 
-      {/* Table grid */}
       <DataCard title="Live Incident Feed" subtitle="Unresolved issues across airport terminals.">
         {filteredIncidents.length === 0 ? (
           <EmptyState title="No active incidents reported" description="All terminals are reporting clear diagnostic health logs." icon={CheckCircle2} />
@@ -159,9 +227,7 @@ export default function ActiveIncidentsPage() {
                     )}
                   >
                     <td className="px-5 py-5 font-mono">
-                      <Link href={`/admin/incidents/${incident.id}`} className="font-bold text-slate-900 hover:underline">
-                        #{incident.id}
-                      </Link>
+                      <span className="font-bold text-slate-900">#{incident.id}</span>
                     </td>
                     <td className="px-5 py-5">
                       <span className={cn("px-2.5 py-0.5 rounded-full font-bold text-[10px] uppercase border", statusColor(incident.severity))}>
@@ -177,9 +243,7 @@ export default function ActiveIncidentsPage() {
                         <div className="w-6 h-6 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600 font-bold text-[10px] font-mono shadow-sm">
                           {incident.assignedTo.substring(0, 2).toUpperCase()}
                         </div>
-                        <span className="text-xs text-slate-650">
-                          {incident.assignedTo}
-                        </span>
+                        <span className="text-xs text-slate-650">{incident.assignedTo}</span>
                       </div>
                     </td>
                     <td className="px-5 py-5">

@@ -3,13 +3,25 @@
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { getIncidents, getDevices, getTerminals, Incident, Device, Terminal } from '@/db'
 import PageHeader from '@/components/ui/PageHeader'
 import DataCard from '@/components/ui/DataCard'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import EmptyState from '@/components/ui/EmptyState'
 import { ArrowLeft, CheckCircle, Eye, AlertTriangle } from 'lucide-react'
 import { statusBadgeClass, severityBorderClass, timeElapsed, severityBadgeClass } from '@/lib/utils'
+import { useRealtime } from '@/hooks/useRealtime'
+
+type IncidentStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED'
+
+interface Incident {
+  id: string
+  terminal: string
+  title: string
+  severity: string
+  status: IncidentStatus
+  assignedTo: string
+  timestamp: string
+}
 
 function getIssueType(title: string): string {
   const t = title.toLowerCase()
@@ -37,20 +49,57 @@ export default function CriticalAlertsPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [incidents, setIncidents] = useState<Incident[]>([])
-  const [devices, setDevices] = useState<Device[]>([])
-  const [terminals, setTerminals] = useState<Terminal[]>([])
+  const [offlineDevicesCount, setOfflineDevicesCount] = useState(0)
+  const { incidents: rtIncidents } = useRealtime()
+
+  useEffect(() => {
+    if (rtIncidents && rtIncidents.length > 0) {
+      const criticalRT = rtIncidents.filter(
+        (inc: any) => inc.severity === 'CRITICAL'
+      ).map((inc: any) => ({
+        id: `${inc.device_id || inc.washroom_id}-${inc.timestamp}`,
+        terminal: inc.terminal,
+        title: inc.description || inc.incident_type || 'Critical Alert',
+        severity: inc.severity,
+        status: 'OPEN' as IncidentStatus,
+        assignedTo: 'Unassigned',
+        timestamp: inc.timestamp,
+      })) as Incident[]
+      setIncidents((prev: Incident[]) => {
+        const merged = [...criticalRT, ...prev]
+        const deduped = merged.filter((item: Incident, index: number, self: Incident[]) =>
+          index === self.findIndex((t: Incident) => t.id === item.id)
+        )
+        return deduped
+      })
+    }
+  }, [rtIncidents])
 
   useEffect(() => {
     async function loadData() {
       try {
-        const [i, d, t] = await Promise.all([
-          getIncidents(),
-          getDevices(),
-          getTerminals()
+        const [incRes, sumRes] = await Promise.all([
+          fetch('/api/da/incidents'),
+          fetch('/api/da/summary'),
         ])
-        setIncidents(i)
-        setDevices(d)
-        setTerminals(t)
+        if (incRes.ok) {
+          const data = await incRes.json()
+          const list = (data.incidents || data || []).map((inc: any) => ({
+            id: inc.id || inc.device_id || `${inc.timestamp}`,
+            terminal: inc.terminal || 'Unknown',
+            title: inc.title || inc.incident_type || inc.description || 'Incident',
+            severity: inc.severity || 'HIGH',
+            status: (inc.status || 'OPEN') as IncidentStatus,
+            assignedTo: inc.assigned_to || 'Unassigned',
+            timestamp: inc.created_at || inc.timestamp || new Date().toISOString(),
+          }))
+          setIncidents(list)
+        }
+        if (sumRes.ok) {
+          const data = await sumRes.json()
+          const allDevices = data.washroom_list || []
+          setOfflineDevicesCount(allDevices.filter((d: any) => (d.whi || 0) < 60).length)
+        }
       } catch (err) {
         console.error('Error loading critical alerts registries:', err)
       } finally {
@@ -67,7 +116,6 @@ export default function CriticalAlertsPage() {
   // Filter only CRITICAL severity incidents
   const criticalList = incidents.filter(x => x.severity === 'CRITICAL' && x.status !== 'RESOLVED')
   const terminalsAffected = new Set(criticalList.map(x => x.terminal)).size
-  const offlineDevicesCount = devices.filter(x => x.status === 'OFFLINE').length
 
   return (
     <div className="space-y-6 font-sans text-sm text-slate-700 bg-slate-50 min-h-screen p-1">
@@ -90,7 +138,20 @@ export default function CriticalAlertsPage() {
         </div>
         <div className="bg-orange-50 border border-orange-200 p-5 rounded-2xl flex flex-col gap-1.5 shadow-sm hover:shadow-md transition-shadow">
           <p className="text-xs text-orange-700 uppercase tracking-wider font-bold">Avg Response Time</p>
-          <h3 className="text-3xl text-orange-605 font-extrabold font-mono">8.5m</h3>
+          <h3 className="text-3xl text-orange-605 font-extrabold font-mono">
+            {criticalList.length > 0
+              ? (() => {
+                  const resolved = criticalList.filter(i => i.status === 'RESOLVED')
+                  if (resolved.length === 0) return '—'
+                  const avgMs = resolved.reduce((sum, i) => {
+                    const diff = new Date(i.timestamp).getTime() - Date.now()
+                    return sum + Math.abs(diff)
+                  }, 0) / resolved.length
+                  const mins = Math.round(avgMs / 60000)
+                  return mins > 0 ? `${mins}m` : '<1m'
+                })()
+              : '—'}
+          </h3>
         </div>
         <div className="bg-amber-50 border border-amber-200 p-5 rounded-2xl flex flex-col gap-1.5 shadow-sm hover:shadow-md transition-shadow">
           <p className="text-xs text-amber-700 uppercase tracking-wider font-bold">Terminals Affected</p>

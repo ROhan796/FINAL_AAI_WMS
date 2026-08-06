@@ -14,6 +14,17 @@ class Settings(BaseSettings):
     CACHE_TTL_SECONDS: int = 60
     WHI_HISTORY_BUFFER_SIZE: int = 100
 
+    # Redis configuration for persistent cache
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_DB: int = 0
+    REDIS_PASSWORD: str = ""
+    REDIS_CACHE_TTL: int = 300  # 5 minutes for cached telemetry
+    REDIS_URL: Optional[str] = None  # Override: use full URL when set (e.g. rediss:// for TLS)
+
+    # CORS
+    CORS_ORIGINS: str = "http://localhost:3000"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -26,5 +37,13 @@ class Settings(BaseSettings):
         if not self.NSCBI_DEVICE_IDS:
             return []
         return [d.strip() for d in self.NSCBI_DEVICE_IDS.split(",") if d.strip()]
+
+    @property
+    def redis_url(self) -> str:
+        """Build Redis connection URL. Uses REDIS_URL if set, otherwise constructs from components."""
+        if self.REDIS_URL:
+            return self.REDIS_URL
+        auth = f":{self.REDIS_PASSWORD}@" if self.REDIS_PASSWORD else ""
+        return f"redis://{auth}{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
 settings = Settings()

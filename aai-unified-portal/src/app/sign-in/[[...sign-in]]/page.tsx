@@ -1,56 +1,55 @@
 'use client'
 import { SignIn } from '@clerk/nextjs'
 import { useEffect, useState } from 'react'
-import { Shield, Wifi, CheckCircle, FileText, Activity, Lock } from 'lucide-react'
+import { Shield, Wifi, CheckCircle, FileText, Activity } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export default function SignInPage() {
-  const [usernameInput, setUsernameInput] = useState('')
+  const [emailInput, setEmailInput] = useState('')
 
   useEffect(() => {
     const interval = setInterval(() => {
       const input = document.querySelector(
-        'input[name="identifier"], input[autocomplete="username"]'
+        'input[name="identifier"], input[autocomplete="email"]'
       ) as HTMLInputElement | null
-      if (input && input.value !== usernameInput) {
-        setUsernameInput(input.value)
+      if (input && input.value !== emailInput) {
+        setEmailInput(input.value)
       }
     }, 100)
     return () => clearInterval(interval)
-  }, [usernameInput])
+  }, [emailInput])
 
-  const getRoleConfig = (value: string) => {
-    const trimmed = value.trim()
+  const getRoleConfig = (email: string) => {
+    const trimmed = email.trim().toLowerCase()
     if (!trimmed) return null
-    if (/^AP-\d{3}$/i.test(trimmed)) {
+    const ADMIN_EMAILS = ['rmxdeath@gmail.com', 'admin@aai.gov.in']
+    const TERMINAL_EMAILS = ['mannarohan51@gmail.com', 'terminal@aai.gov.in']
+    const AUDITOR_EMAILS = ['rohanmannas2021@gmail.com', 'auditor@aai.gov.in']
+    if (ADMIN_EMAILS.includes(trimmed)) {
       return {
         label: 'Administrator',
         badgeClass: 'bg-blue-50 text-blue-700 border-blue-200',
         icon: <Shield size={12} className="text-blue-700 inline mr-1" />
       }
     }
-    if (/^TP-\d{3}$/i.test(trimmed)) {
+    if (TERMINAL_EMAILS.includes(trimmed)) {
       return {
         label: 'Terminal Operator',
         badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
         icon: <Activity size={12} className="text-emerald-700 inline mr-1" />
       }
     }
-    if (/^ALP-\d{3}$/i.test(trimmed)) {
+    if (AUDITOR_EMAILS.includes(trimmed)) {
       return {
         label: 'System Auditor',
-        badgeClass: 'bg-violet-50 text-violet-750 border-violet-200',
+        badgeClass: 'bg-violet-50 text-violet-700 border-violet-200',
         icon: <FileText size={12} className="text-violet-700 inline mr-1" />
       }
     }
-    return {
-      label: 'Unknown Role',
-      badgeClass: 'bg-red-50 text-red-700 border-red-200',
-      icon: <Lock size={12} className="text-red-750 inline mr-1" />
-    }
+    return null
   }
 
-  const roleConfig = getRoleConfig(usernameInput)
+  const roleConfig = getRoleConfig(emailInput)
 
   return (
     <div className="flex min-h-screen bg-slate-50 relative overflow-hidden font-sans">
@@ -130,7 +129,7 @@ export default function SignInPage() {
           <div className="h-8 flex items-center justify-center mb-4">
             {!roleConfig ? (
               <span className="text-slate-450 text-sm">
-                Enter your User ID to detect role
+                Enter your email to detect role
               </span>
             ) : (
               <span className={cn(
@@ -143,6 +142,8 @@ export default function SignInPage() {
           </div>
 
           <SignIn
+            routing="path"
+            path="/sign-in"
             forceRedirectUrl="/api/auth/redirect"
             appearance={{
               variables: {
@@ -194,20 +195,20 @@ export default function SignInPage() {
             </p>
             <div className="space-y-2 text-xs font-mono">
               <div className="flex justify-between items-center">
-                <span className="text-blue-650 font-bold">AP-001</span>
-                <span className="text-slate-500">→ Administrator</span>
+                <span className="text-blue-600 font-bold">rmxdeath@gmail.com</span>
+                <span className="text-slate-500">→ Admin</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-emerald-700 font-bold">TP-001</span>
-                <span className="text-slate-500">→ Terminal Operator</span>
+                <span className="text-emerald-700 font-bold">mannarohan51@gmail.com</span>
+                <span className="text-slate-500">→ Terminal</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-violet-700 font-bold">ALP-001</span>
-                <span className="text-slate-500">→ System Auditor</span>
+                <span className="text-violet-700 font-bold">rohanmannas2021@gmail.com</span>
+                <span className="text-slate-500">→ Auditor</span>
               </div>
               <div className="border-t border-slate-200 pt-2 mt-2">
                 <span className="text-slate-500 font-sans">Password: </span>
-                <span className="text-slate-700 font-bold">AAI@demo2025</span>
+                <span className="text-slate-700 font-bold">{process.env.NEXT_PUBLIC_DEMO_PASSWORD || 'Not configured'}</span>
               </div>
             </div>
           </div>

@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+﻿import { NextResponse } from 'next/server';
 import { wmsGet } from '@/lib/wmsClient';
 
 export const dynamic = 'force-dynamic';

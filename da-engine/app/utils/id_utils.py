@@ -1,12 +1,45 @@
-from typing import Tuple
+import re
+from typing import Optional, Dict, Any
 
-def parse_device_id(device_id: str) -> Tuple[str, str, str]:
+# VALIDATE against 54-device format
+DEVICE_ID_PATTERN = re.compile(
+    r'^(T[1-3])-(L[1-6])-(PPD|PPM|PPF)-(\d{3})$'
+)
+
+def parse_device_id(device_id: str) -> Optional[Dict[str, Any]]:
     """
-    Parses a device ID to extract (terminal_id, floor_level, unit_type).
-    E.g. T1-L1-PPM-001 -> ("T1", "L1", "PPM")
+    Parse device ID format: Tn-Lm-PPX-NNN
+    Returns dict with terminal, level, type, number or None if invalid
     """
-    parts = device_id.split("-")
-    terminal_id = parts[0] if len(parts) > 0 else "UNKNOWN"
-    floor_level = parts[1] if len(parts) > 1 else "L1"
-    unit_type = parts[2] if len(parts) > 2 else "PPM"
-    return terminal_id, floor_level, unit_type
+    match = DEVICE_ID_PATTERN.match(device_id)
+    if not match:
+        return None
+
+    terminal, level, unit_type, number = match.groups()
+    return {
+        "terminal": terminal,      # T1, T2, T3
+        "level": level,            # L1-L6
+        "type": unit_type,         # PPD, PPM, PPF
+        "number": int(number),     # 1-54
+        "terminal_num": int(terminal[1]),
+        "level_num": int(level[1]),
+    }
+
+def validate_device_id(device_id: str) -> bool:
+    """Check if device_id matches the 54-device format"""
+    return DEVICE_ID_PATTERN.match(device_id) is not None
+
+def get_device_type(device_id: str) -> Optional[str]:
+    """Extract device type (PPD/PPM/PPF) from device ID"""
+    parsed = parse_device_id(device_id)
+    return parsed["type"] if parsed else None
+
+def get_terminal(device_id: str) -> Optional[str]:
+    """Extract terminal (T1/T2/T3) from device ID"""
+    parsed = parse_device_id(device_id)
+    return parsed["terminal"] if parsed else None
+
+def get_level(device_id: str) -> Optional[str]:
+    """Extract level (L1-L6) from device ID"""
+    parsed = parse_device_id(device_id)
+    return parsed["level"] if parsed else None

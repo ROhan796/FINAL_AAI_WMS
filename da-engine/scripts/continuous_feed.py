@@ -1,58 +1,130 @@
 #!/usr/bin/env python3
 """
-AAI Smart Washroom — Continuous Data Feeder
-Sends one reading per 30 seconds to MC001 to keep the portal live.
-Run in a separate terminal while the stack is running.
+NSCBI Airport — Continuous Feed Script
+Sends one reading every 30 seconds, rotating through all 54 devices
 """
 
-import asyncio
-import httpx
 import random
+import time
+import requests
 import os
-import sys
 from datetime import datetime, timezone
+from typing import Dict, Any
 
-# Add parent directory to path so we can import from generate_and_upload
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Import from generate_and_upload
 from generate_and_upload import (
-    DEVICE_ID, HEADERS, UPLOAD_URL,
-    generate_reading,
+    DEVICE_IDS,
+    RANGES,
+    compute_penalties,
+    API_URL,
+    API_KEY,
+    HEADERS,
 )
 
-async def continuous_feed(interval_seconds: int = 30):
-    print(f"[Feeder] Starting continuous feed for {DEVICE_ID}")
-    print(f"[Feeder] Interval: {interval_seconds}s between readings")
-    print(f"[Feeder] Press Ctrl+C to stop\n")
+# Configuration
+FEED_INTERVAL = 30  # seconds between readings
 
-    seq = 400  # Start after initial batch (350 records)
-    batch_num = 0
+def generate_current_reading(device_id: str) -> Dict[str, Any]:
+    """Generate a single current reading for a device"""
+    parts = device_id.split("-")
+    dev_type = parts[2]
+    r = RANGES[dev_type]
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    temp = round(random.uniform(*r["temp"]), 1)
+    hum = round(random.uniform(*r["hum"]), 1)
+    nh3 = round(random.uniform(*r["nh3"]), 2)
+    h2s = round(random.uniform(*r["h2s"]), 2)
+    occ = random.randint(*r["occ"])
+
+    p_nh3, p_h2s, p_hum, p_tmp, whi = compute_penalties(temp, hum, nh3, h2s)
+    tput = int(occ * random.uniform(3, 6))
+
+    return {
+        "deviceId": device_id,
+        "temperature": temp,
+        "humidity": hum,
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "nh3": nh3,
+        "h2s": h2s,
+        "penalty_nh3": p_nh3,
+        "penalty_h2s": p_h2s,
+        "penalty_humidity": p_hum,
+        "penalty_temperature": p_tmp,
+        "raw_whi": whi,
+        "throughput": tput,
+        "occupancy_inside": occ,
+    }
+
+def upload_reading(record: Dict[str, Any]) -> bool:
+    """Upload a single reading to the API"""
+    try:
+        resp = requests.post(API_URL, json=record, headers=HEADERS, timeout=30)
+
+        if resp.status_code == 429:
+            print(f"  Rate limited. Waiting 120s...")
+            time.sleep(120)
+            resp = requests.post(API_URL, json=record, headers=HEADERS, timeout=30)
+
+        if resp.status_code in (200, 201):
+            data = resp.json()
+            filename = data.get("filename", "unknown")
+            print(f"  OK: {record['deviceId']} -> {filename} (WHI={record['raw_whi']})")
+            return True
+        else:
+            print(f"  FAIL: {record['deviceId']} ({resp.status_code})")
+            return False
+
+    except Exception as e:
+        print(f"  ERROR: {e}")
+        return False
+
+def main():
+    print("=" * 60)
+    print("NSCBI Airport — Continuous Feed")
+    print("=" * 60)
+    print(f"Devices: {len(DEVICE_IDS)}")
+    print(f"Interval: {FEED_INTERVAL}s")
+    print(f"API URL: {API_URL}")
+    print()
+    print("Press Ctrl+C to stop")
+    print("-" * 60)
+
+    device_index = 0
+    reading_count = 0
+    success_count = 0
+    fail_count = 0
+
+    try:
         while True:
-            batch_num += 1
-            now = datetime.now(timezone.utc)
-            print(f"[Batch {batch_num}] {now.strftime('%H:%M:%S')} UTC")
+            # Get current device in rotation
+            device_id = DEVICE_IDS[device_index]
 
-            reading = generate_reading(now, seq)
-            import dataclasses
-            payload = dataclasses.asdict(reading)
+            # Generate and upload reading
+            print(f"\n[{reading_count + 1}] Device: {device_id}")
+            record = generate_current_reading(device_id)
 
-            try:
-                resp = await client.post(UPLOAD_URL, json=payload, headers=HEADERS)
-                if resp.status_code == 201:
-                    data = resp.json()
-                    print(f"  {DEVICE_ID} -> {data.get('filename', '?')} OK")
-                else:
-                    print(f"  {DEVICE_ID} -> HTTP {resp.status_code}")
-            except Exception as e:
-                print(f"  {DEVICE_ID} -> ERROR: {e}")
+            if upload_reading(record):
+                success_count += 1
+            else:
+                fail_count += 1
 
-            seq += 1
-            await asyncio.sleep(interval_seconds)
+            reading_count += 1
 
+            # Move to next device (wrap around)
+            device_index = (device_index + 1) % len(DEVICE_IDS)
+
+            # Wait for next interval
+            print(f"  Next device in {FEED_INTERVAL}s... (Total: {success_count} ok, {fail_count} failed)")
+            time.sleep(FEED_INTERVAL)
+
+    except KeyboardInterrupt:
+        print()
+        print("=" * 60)
+        print("Feed stopped by user")
+        print(f"Total readings: {reading_count}")
+        print(f"Successful: {success_count}")
+        print(f"Failed: {fail_count}")
+        print("=" * 60)
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(continuous_feed(30))
-    except KeyboardInterrupt:
-        print("\n[Feeder] Stopped.")
+    main()

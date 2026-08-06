@@ -26,13 +26,13 @@ function randElement<T>(arr: T[]): T {
 function localComputeWHI(params: {
   cleanliness_score: number
   occupancy_count: number
-  unit_type: 'PPM' | 'PPF' | 'PPD' | 'STF'
+  unit_type: 'PPM' | 'PPF' | 'PPD'
   soap_pct: number
   paper_pct: number
   sanitizer_pct: number
   ammonia_ppm: number
 }): number {
-  const CAPACITY = { PPM: 4, PPF: 4, PPD: 2, STF: 3 }
+  const CAPACITY = { PPM: 4, PPF: 4, PPD: 2 }
   const capacity = CAPACITY[params.unit_type]
   const occupancyLoadPct = Math.min((params.occupancy_count / capacity) * 100, 100)
   const supplyScore = (params.soap_pct + params.paper_pct + params.sanitizer_pct) / 3
@@ -45,10 +45,11 @@ function localComputeWHI(params: {
   ) * 10) / 10
 }
 
+// 54 Device Schema - 3 Terminals only (NO CGO)
 const TERMINALS = [
   { id: 'T1',  name: 'Old Domestic Terminal',          code: 'T1',  type: 'domestic',      total_levels: 6 },
   { id: 'T2',  name: 'New International Terminal',     code: 'T2',  type: 'international', total_levels: 6 },
-  { id: 'CGO', name: 'Cargo Terminal',                 code: 'CGO', type: 'cargo',         total_levels: 6 },
+  { id: 'T3',  name: 'Terminal 3',                     code: 'T3',  type: 'domestic',      total_levels: 6 },
 ]
 
 const LEVEL_LABELS: Record<string, Record<number, string>> = {
@@ -68,22 +69,47 @@ const LEVEL_LABELS: Record<string, Record<number, string>> = {
     5: 'Level 5 — Airside Retail & Lounges',
     6: 'Level 6 — Administrative & Utilities',
   },
-  CGO: {
-    1: 'Level 1 — Ground Operations',
-    2: 'Level 2 — Cargo Intake',
-    3: 'Level 3 — Sorting & Screening',
-    4: 'Level 4 — Cold Storage',
-    5: 'Level 5 — Office & Staff Areas',
-    6: 'Level 6 — Rooftop / Mechanical',
+  T3: {
+    1: 'Level 1 — Ground / Arrivals',
+    2: 'Level 2 — Baggage & Check-in',
+    3: 'Level 3 — Departures & Security',
+    4: 'Level 4 — Gates & Boarding',
+    5: 'Level 5 — Retail & Dining',
+    6: 'Level 6 — Maintenance & Utilities',
   },
 }
 
-const UNIT_TYPES = [
-  { type: 'PPM', label: 'Public Passenger — Male',     count: 28, capacity: 4 },
-  { type: 'PPF', label: 'Public Passenger — Female',   count: 28, capacity: 4 },
-  { type: 'PPD', label: 'Public Passenger — Disabled', count: 24, capacity: 2 },
-  { type: 'STF', label: 'Staff & Worker',              count: 35, capacity: 3 },
-] as const
+// 54 Device IDs - 3 per level (PPD, PPM, PPF) × 6 levels × 3 terminals = 54
+const DEVICE_IDS = [
+  // Terminal 1 (T1)
+  "T1-L1-PPD-001", "T1-L1-PPM-002", "T1-L1-PPF-003",
+  "T1-L2-PPD-004", "T1-L2-PPM-005", "T1-L2-PPF-006",
+  "T1-L3-PPD-007", "T1-L3-PPM-008", "T1-L3-PPF-009",
+  "T1-L4-PPD-010", "T1-L4-PPM-011", "T1-L4-PPF-012",
+  "T1-L5-PPD-013", "T1-L5-PPM-014", "T1-L5-PPF-015",
+  "T1-L6-PPD-016", "T1-L6-PPM-017", "T1-L6-PPF-018",
+  // Terminal 2 (T2)
+  "T2-L1-PPD-019", "T2-L1-PPM-020", "T2-L1-PPF-021",
+  "T2-L2-PPD-022", "T2-L2-PPM-023", "T2-L2-PPF-024",
+  "T2-L3-PPD-025", "T2-L3-PPM-026", "T2-L3-PPF-027",
+  "T2-L4-PPD-028", "T2-L4-PPM-029", "T2-L4-PPF-030",
+  "T2-L5-PPD-031", "T2-L5-PPM-032", "T2-L5-PPF-033",
+  "T2-L6-PPD-034", "T2-L6-PPM-035", "T2-L6-PPF-036",
+  // Terminal 3 (T3)
+  "T3-L1-PPD-037", "T3-L1-PPM-038", "T3-L1-PPF-039",
+  "T3-L2-PPD-040", "T3-L2-PPM-041", "T3-L2-PPF-042",
+  "T3-L3-PPD-043", "T3-L3-PPM-044", "T3-L3-PPF-045",
+  "T3-L4-PPD-046", "T3-L4-PPM-047", "T3-L4-PPF-048",
+  "T3-L5-PPD-049", "T3-L5-PPM-050", "T3-L5-PPF-051",
+  "T3-L6-PPD-052", "T3-L6-PPM-053", "T3-L6-PPF-054",
+]
+
+// Unit type capacities
+const UNIT_CAPACITY: Record<string, number> = {
+  PPD: 2,  // Disabled
+  PPM: 4,  // Men
+  PPF: 4,  // Female
+}
 
 async function main() {
   console.log('Clearing database...')
@@ -96,7 +122,7 @@ async function main() {
   await db.delete(levels)
   await db.delete(terminals)
 
-  console.log('Seeding terminals...')
+  console.log('Seeding 3 terminals (T1, T2, T3)...')
   await db.insert(terminals).values(TERMINALS)
 
   console.log('Seeding levels...')
@@ -115,96 +141,90 @@ async function main() {
     }
   }
 
-  console.log('Generating 2070 washroom units and states...')
+  console.log('Generating 54 washroom units and states...')
   const allUnits: typeof washroomUnits.$inferInsert[] = []
   const allStates: typeof washroomState.$inferInsert[] = []
 
-  for (const t of TERMINALS) {
-    for (let l = 1; l <= 6; l++) {
-      const levelId = levelsMapping[t.id][l]
-      for (const ut of UNIT_TYPES) {
-        for (let num = 1; num <= ut.count; num++) {
-          const deviceId = `${t.id}-L${l}-${ut.type}-${String(num).padStart(3, '0')}`
-          const label = `${t.code} · L${l} · ${ut.type === 'PPM' ? 'Male' : ut.type === 'PPF' ? 'Female' : ut.type === 'PPD' ? 'Disabled' : 'Staff'} · Unit ${String(num).padStart(2, '0')}`
-          
-          allUnits.push({
-            device_id: deviceId,
-            terminal_id: t.id,
-            level_id: levelId,
-            unit_type: ut.type,
-            unit_number: num,
-            label,
-            capacity: ut.capacity,
-            location_desc: `Near Gate ${10 + num}, Level ${l}`,
-            is_active: true
-          })
+  for (const deviceId of DEVICE_IDS) {
+    // Parse device ID: Tn-Lm-PPX-NNN
+    const parts = deviceId.split('-')
+    const terminalId = parts[0]
+    const levelNum = parseInt(parts[1].replace('L', ''))
+    const unitType = parts[2] as 'PPD' | 'PPM' | 'PPF'
+    const unitNumber = parseInt(parts[3])
 
-          // Generate state
-          const statusRand = nextRand()
-          let occupancyStatus: 'VACANT' | 'OCCUPIED' | 'CLEANING' | 'OUT_OF_ORDER' = 'VACANT'
-          if (statusRand > 0.97) occupancyStatus = 'OUT_OF_ORDER'
-          else if (statusRand > 0.90) occupancyStatus = 'CLEANING'
-          else if (statusRand > 0.60) occupancyStatus = 'OCCUPIED'
+    const levelId = levelsMapping[terminalId]?.[levelNum]
+    if (!levelId) continue
 
-          const occupancyCount = occupancyStatus === 'VACANT' ? 0 : occupancyStatus === 'OCCUPIED' ? Math.floor(randRange(1, ut.capacity + 1)) : 0
-          const doorStatus = occupancyStatus === 'OUT_OF_ORDER' ? 'LOCKED' : occupancyCount > 0 ? 'CLOSED' : 'OPEN'
+    const capacity = UNIT_CAPACITY[unitType]
+    const typeLabel = unitType === 'PPM' ? 'Male' : unitType === 'PPF' ? 'Female' : 'Disabled'
+    const label = `${terminalId} · L${levelNum} · ${typeLabel} · Unit ${String(unitNumber).padStart(2, '0')}`
 
-          const cleanlinessScore = Math.round(randRange(55, 100))
-          const soapPct = Math.round(randRange(20, 100))
-          const paperPct = Math.round(randRange(20, 100))
-          const sanitizerPct = Math.round(randRange(20, 100))
-          const ammoniaPpm = randRange(2, 48)
-          const co2Ppm = randRange(400, 1150)
-          const humidityPct = randRange(45, 68)
-          const tempCelsius = randRange(22, 28)
-          const batteryLevel = randRange(40, 100)
-          const signalStrength = randRange(-85, -45)
+    allUnits.push({
+      device_id: deviceId,
+      terminal_id: terminalId,
+      level_id: levelId,
+      unit_type: unitType,
+      unit_number: unitNumber,
+      label,
+      capacity,
+      location_desc: `Near Gate ${10 + unitNumber}, Level ${levelNum}`,
+      is_active: true
+    })
 
-          const whiScore = localComputeWHI({
-            cleanliness_score: cleanlinessScore,
-            occupancy_count: occupancyCount,
-            unit_type: ut.type,
-            soap_pct: soapPct,
-            paper_pct: paperPct,
-            sanitizer_pct: sanitizerPct,
-            ammonia_ppm: ammoniaPpm
-          })
+    // Generate state with varying WHI between 60-85
+    const occupancyStatus: 'VACANT' | 'OCCUPIED' | 'CLEANING' | 'OUT_OF_ORDER' = 'VACANT'
+    const occupancyCount = 0
 
-          const now = new Date()
-          allStates.push({
-            device_id: deviceId,
-            updated_at: now,
-            occupancy_status: occupancyStatus,
-            occupancy_count: occupancyCount,
-            door_status: doorStatus,
-            cleanliness_score: cleanlinessScore,
-            soap_pct: soapPct,
-            paper_pct: paperPct,
-            sanitizer_pct: sanitizerPct,
-            ammonia_ppm: ammoniaPpm,
-            co2_ppm: co2Ppm,
-            humidity_pct: humidityPct,
-            temp_celsius: tempCelsius,
-            battery_level: batteryLevel,
-            signal_strength: signalStrength,
-            whi_score: whiScore,
-            last_cleaned_at: new Date(now.getTime() - Math.floor(randRange(10, 480)) * 60000),
-            last_inspected_at: new Date(now.getTime() - Math.floor(randRange(30, 1440)) * 60000),
-          })
-        }
-      }
-    }
+    const cleanlinessScore = Math.round(randRange(60, 90))
+    const soapPct = Math.round(randRange(70, 100))
+    const paperPct = Math.round(randRange(70, 100))
+    const sanitizerPct = Math.round(randRange(70, 100))
+    const ammoniaPpm = randRange(2, 20)
+    const co2Ppm = randRange(400, 800)
+    const humidityPct = randRange(45, 65)
+    const tempCelsius = randRange(22, 27)
+    const batteryLevel = randRange(60, 100)
+    const signalStrength = randRange(-70, -45)
+
+    const whiScore = localComputeWHI({
+      cleanliness_score: cleanlinessScore,
+      occupancy_count: occupancyCount,
+      unit_type: unitType,
+      soap_pct: soapPct,
+      paper_pct: paperPct,
+      sanitizer_pct: sanitizerPct,
+      ammonia_ppm: ammoniaPpm
+    })
+
+    const now = new Date()
+    allStates.push({
+      device_id: deviceId,
+      updated_at: now,
+      occupancy_status: occupancyStatus,
+      occupancy_count: occupancyCount,
+      door_status: 'OPEN',
+      cleanliness_score: cleanlinessScore,
+      soap_pct: soapPct,
+      paper_pct: paperPct,
+      sanitizer_pct: sanitizerPct,
+      ammonia_ppm: ammoniaPpm,
+      co2_ppm: co2Ppm,
+      humidity_pct: humidityPct,
+      temp_celsius: tempCelsius,
+      battery_level: batteryLevel,
+      signal_strength: signalStrength,
+      whi_score: whiScore,
+      last_cleaned_at: new Date(now.getTime() - Math.floor(randRange(10, 480)) * 60000),
+      last_inspected_at: new Date(now.getTime() - Math.floor(randRange(30, 1440)) * 60000),
+    })
   }
 
-  console.log('Batch inserting units in chunks of 500...')
-  for (let i = 0; i < allUnits.length; i += 500) {
-    await db.insert(washroomUnits).values(allUnits.slice(i, i + 500))
-  }
+  console.log('Inserting 54 washroom units...')
+  await db.insert(washroomUnits).values(allUnits)
 
-  console.log('Batch inserting states in chunks of 500...')
-  for (let i = 0; i < allStates.length; i += 500) {
-    await db.insert(washroomState).values(allStates.slice(i, i + 500))
-  }
+  console.log('Inserting 54 washroom states...')
+  await db.insert(washroomState).values(allStates)
 
   console.log('Seeding maintenance issues...')
   const issuesToSeed: typeof maintenanceIssues.$inferInsert[] = []
@@ -263,22 +283,20 @@ async function main() {
   console.log('Seeding 7-day WHI history rollups...')
   const allHistory: typeof whiHistory.$inferInsert[] = []
   const today = new Date()
-  
-  // To avoid performance issues seeding 14,490 rows in one transaction,
-  // we seed historical rollups for a subset of 300 random units to cover dashboard trends.
-  const subsetUnits = allUnits.slice(0, 300)
-  for (const u of subsetUnits) {
+
+  // Seed historical data for all 54 units
+  for (const u of allUnits) {
     const stateObj = allStates.find(x => x.device_id === u.device_id)
-    const baseWhi = stateObj ? stateObj.whi_score : 85
+    const baseWhi = stateObj ? stateObj.whi_score : 75
     for (let d = 1; d <= 7; d++) {
       const dateStr = new Date(today.getTime() - d * 24 * 3600 * 1000).toISOString().split('T')[0]
       allHistory.push({
         device_id: u.device_id,
         date: dateStr,
-        avg_whi: Math.min(100, Math.max(20, Math.round(baseWhi + randRange(-5, 5)))),
-        min_whi: Math.min(100, Math.max(10, Math.round(baseWhi - randRange(5, 15)))),
-        max_whi: Math.min(100, Math.max(30, Math.round(baseWhi + randRange(2, 6)))),
-        total_occupancy_count: Math.floor(randRange(10, 80))
+        avg_whi: Math.min(100, Math.max(40, Math.round(baseWhi + randRange(-10, 10)))),
+        min_whi: Math.min(100, Math.max(20, Math.round(baseWhi - randRange(10, 20)))),
+        max_whi: Math.min(100, Math.max(50, Math.round(baseWhi + randRange(5, 15)))),
+        total_occupancy_count: Math.floor(randRange(10, 60))
       })
     }
   }
@@ -289,6 +307,7 @@ async function main() {
   }
 
   console.log('Seeding finished successfully!')
+  console.log(`Seeded ${allUnits.length} washroom units (54 devices)`)
 }
 
 main().catch(err => {

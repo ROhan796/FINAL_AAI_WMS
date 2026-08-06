@@ -1,15 +1,13 @@
 # Secrets — NEVER commit these
-aai-wms-backend/secrets/*.txt
-aai-wms-backend/certs/ca/ca.key
-aai-wms-backend/certs/**/*.key
-aai-wms-backend/certs/**/*.pem
-aai-wms-backend/.env
+.env
+.env.*
+.env2
+aai-wms-backend/certs/
+aai-wms-backend/secrets/
 
 # DA Engine
-da-engine/.env
 
 # Portal
-aai-unified-portal/.env.local
 aai-unified-portal/.next/
 aai-unified-portal/node_modules/
 
@@ -19,6 +17,8 @@ aai-unified-portal/node_modules/
 **/*.pyo
 da-engine/venv/
 aai-wms-backend/venv/
+da-engine/.venv/
+aai-wms-backend/.venv/
 
 # Docker
 **/.docker/
@@ -26,6 +26,10 @@ aai-wms-backend/venv/
 # Logs
 *.log
 **/logs/
+da-engine/da_engine.log
+da-engine/upload_*.log
+da-engine/upload_error*.txt
+da-engine/upload_progress.json
 
 # OS
 .DS_Store
@@ -33,3 +37,16 @@ Thumbs.db
 
 # PIDs
 .portal.pid
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node
+aai-unified-portal/.eslintcache
+
+# Build artifacts
+da-engine/dist/
+aai-wms-backend/dist/

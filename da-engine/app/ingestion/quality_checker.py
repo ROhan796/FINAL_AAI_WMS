@@ -15,8 +15,8 @@ class QualityChecker:
         """
         now = datetime.now(timezone.utc)
         
-        # 1. Staleness Check: Check if timestamp is older than 24 hours or in the future
-        if telemetry.recorded_at < now - timedelta(hours=24):
+        # 1. Staleness Check: Check if timestamp is older than 7 days or in the future
+        if telemetry.recorded_at < now - timedelta(days=7):
             logger.warning(f"Telemetry quality warning: Stale data for {telemetry.device_id}. Recorded at {telemetry.recorded_at}")
             return False
         if telemetry.recorded_at > now + timedelta(minutes=5):

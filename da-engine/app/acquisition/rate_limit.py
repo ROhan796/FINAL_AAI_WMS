@@ -24,9 +24,10 @@ class TokenBucketRateLimiter:
                 sleep_duration = (1.0 - self.tokens) / self.fill_rate
                 logger.info(f"Rate limit approaching. Throttling for {sleep_duration:.2f} seconds...")
                 await asyncio.sleep(sleep_duration)
-                # Re-evaluate tokens after sleep
+                # After sleeping, consume the 1 token we accumulated.
+                # Do NOT update last_fill — the elapsed time on next call
+                # will naturally account for the sleep duration.
                 self.tokens = 0.0
-                self.last_fill = time.monotonic()
             else:
                 self.tokens -= 1.0
 

@@ -1,7 +1,22 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { useRealtime } from '@/hooks/useRealtime';
+
+interface DAIncident {
+  device_id: string;
+  terminal: string;
+  level: string;
+  type: string;
+  incident_type: string;
+  severity: string;
+  description: string;
+  value: number;
+  threshold: number;
+  timestamp: string;
+  whi: number;
+}
 
 interface ActiveIncident {
   id: string;
@@ -11,95 +26,155 @@ interface ActiveIncident {
   location: string;
   timeElapsed: string;
   assignedStaff: string;
-  assignedAvatar?: string;
   status: string;
+  device_id: string;
+  terminal: string;
+  severity: string;
+  value: number;
+  threshold: number;
+}
+
+function getIncidentCategory(type: string): { label: string; icon: string } {
+  const map: Record<string, { label: string; icon: string }> = {
+    CRITICAL_NH3: { label: 'Air Quality', icon: 'air' },
+    HIGH_NH3: { label: 'Air Quality', icon: 'air' },
+    CRITICAL_H2S: { label: 'Air Quality', icon: 'air' },
+    HIGH_H2S: { label: 'Air Quality', icon: 'air' },
+    CRITICAL_WHIP: { label: 'Hygiene Index', icon: 'sanitizer' },
+    LOW_WHIP: { label: 'Hygiene Index', icon: 'sanitizer' },
+    HIGH_OCCUPANCY: { label: 'Occupancy', icon: 'group' },
+    HIGH_HUMIDITY: { label: 'Climate', icon: 'thermostat' },
+    HIGH_TEMPERATURE: { label: 'Climate', icon: 'thermostat' },
+  };
+  return map[type] || { label: 'General', icon: 'warning' };
+}
+
+function getPriority(severity: string): 'Critical' | 'High' | 'Medium' {
+  if (severity === 'CRITICAL') return 'Critical';
+  if (severity === 'WARNING') return 'High';
+  return 'Medium';
+}
+
+function getTimeElapsed(timestamp: string): string {
+  const now = new Date();
+  const then = new Date(timestamp);
+  const diffMs = now.getTime() - then.getTime();
+  const hours = Math.floor(diffMs / 3600000);
+  const mins = Math.floor((diffMs % 3600000) / 60000);
+  const secs = Math.floor((diffMs % 60000) / 1000);
+  return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
 export default function ActiveIncidentsDetail() {
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
+  const [incidents, setIncidents] = useState<ActiveIncident[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [counts, setCounts] = useState({ critical: 0, high: 0, medium: 0 });
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { incidents: realtimeIncidents } = useRealtime();
 
-  const activeIncidents: ActiveIncident[] = [
-    {
-      id: '#INC-9821',
-      priority: 'Critical',
-      category: 'Electrical',
-      categoryIcon: 'bolt',
-      location: 'Gate B12 - Terminal 2',
-      timeElapsed: '00:14:22',
-      assignedStaff: 'M. Simmons',
-      assignedAvatar: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAsuotEnA-S_lTGnu5x1Fem6WgZDIuoNnyrtlKcFlHm5VQmgK3vAV6DYpypggppCg2g4b_SxI0l0DhRvo5m7reuFF-bXZW1cYdPZXiXbIo8yBLWgQY64xSWiXo4yuQTKdbAsqI1ihKszyV1pABcoy-SaKykYAl1UdH6zTxCdLAoBxVUGI5Tv38ZdWVnFYXDgCi7wJoUrrxzQ-_vOJFjQnwQYNtE9PRfREHGOI1RQq3QXtXkoPOOX0zvOCpVAqS5DxeIDxwlXTtih6Y',
-      status: 'Dispatched'
-    },
-    {
-      id: '#INC-9819',
-      priority: 'High',
-      category: 'Plumbing',
-      categoryIcon: 'plumbing',
-      location: 'Restroom 4A - North Concourse',
-      timeElapsed: '00:45:10',
-      assignedStaff: 'J. Taylor',
-      assignedAvatar: 'https://lh3.googleusercontent.com/aida-public/AB6AXuB3Jdvql4w9vCmbNE8207s79x-1xDQjr352z7zeH2Z3wAKJSdKhXndSrQnbQemkuy5CsaM1HEG-wDqdaVnBmAHeBTqY7iwF7RSGFfH25W3XwhukEBIrMwQ44E3UXiYUeM6jFHwQpkA4rvDfE_JfOt4hFIIFi_QXw_tLBMrBvvwLXT4TQ_KxeGS08xe1dcNr6menCShJZY_EpcFAwGY35sMAeNBXucmnTsjyoKQY_0rLYb0PYNH9K8ierw3HzohpyJJEKnY_oJ9363Q',
-      status: 'In Progress'
-    },
-    {
-      id: '#INC-9815',
-      priority: 'Medium',
-      category: 'Cleaning',
-      categoryIcon: 'cleaning_services',
-      location: 'Lounge Area C',
-      timeElapsed: '01:02:44',
-      assignedStaff: 'Unassigned',
-      status: 'Unassigned'
-    },
-    {
-      id: '#INC-9810',
-      priority: 'Critical',
-      category: 'Elevator Malfunction',
-      categoryIcon: 'elevator',
-      location: 'Elevator 3 - Main Hall',
-      timeElapsed: '00:08:31',
-      assignedStaff: 'D. Knight',
-      assignedAvatar: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAdOu630Mvzv15l9y_0SiKRpdTjlAmmPVTXpnujg_L60BgcTHxNrkeBV-Vv7hBNWNZJZbjGjxIwOM5tkiQwe39SPzkqXd6UpjTf0uuA-jahbZf3rcGjohKO1AptoFpW0owrQ-qBDXEvXheif18DpwJbDJGpeEDGF-rMcTktgxFnz8PYRTCGMrTX-0ARTeStVu3Zho0GTieVpE2EaNOjQi5173U1jOODqfZXlU3vAdC9fNykBQ4BlNvepmBlmGg31EYIy8THPhcvWYE',
-      status: 'Dispatched'
-    },
-    {
-      id: '#INC-9808',
-      priority: 'Medium',
-      category: 'IT/Network',
-      categoryIcon: 'wifi_off',
-      location: 'Kiosk 12-15 Row 4',
-      timeElapsed: '02:15:00',
-      assignedStaff: 'A. Lee',
-      assignedAvatar: 'https://lh3.googleusercontent.com/aida-public/AB6AXuA7LWMWDmdOTXMyq0XgX3x1u4wVuGk6JFKQcJjuOd-eswDdhhiYltNggWT6NGQvRG-mk-o3qdXicktdBZyMW0oUIChBTx2_N2_gKxw0kSH7K7npHQSwzT9E_EBYsUIjoEA1PG_I1mhRYGbGG3Q1rM4HyhvSwuRQECTQWmePscu4telH6K4YPLmm44LwNuQQQ8bgqmTYqOen3LIOeeG__gHspTxdUaa-Ek37B61vzYe9k-0ozhdcm8ARVl3UmUEp6LhQud7yq1-xxi4',
-      status: 'In Progress'
+  const fetchData = useCallback(async () => {
+    try {
+      const res = await fetch('/api/da/incidents', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        const arr: DAIncident[] = Array.isArray(data) ? data : [];
+
+        const mapped: ActiveIncident[] = arr.map((inc, idx) => {
+          const cat = getIncidentCategory(inc.incident_type);
+          const priority = getPriority(inc.severity);
+          return {
+            id: `${inc.device_id}-${inc.incident_type}-${idx}`,
+            priority,
+            category: cat.label,
+            categoryIcon: cat.icon,
+            location: `${inc.terminal}-${inc.level} ${inc.type}`,
+            timeElapsed: getTimeElapsed(inc.timestamp),
+            assignedStaff: 'Auto-Detected',
+            status: inc.severity === 'CRITICAL' ? 'Dispatched' : 'Monitoring',
+            device_id: inc.device_id,
+            terminal: inc.terminal,
+            severity: inc.severity,
+            value: inc.value,
+            threshold: inc.threshold,
+          };
+        });
+
+        setIncidents(mapped);
+        setCounts({
+          critical: mapped.filter(i => i.priority === 'Critical').length,
+          high: mapped.filter(i => i.priority === 'High').length,
+          medium: mapped.filter(i => i.priority === 'Medium').length,
+        });
+      }
+    } catch {
+    } finally {
+      setLoading(false);
     }
-  ];
+  }, []);
 
-  const handleRowClick = (id: string) => {
-    router.push(`/terminal/incidents/summary-details`);
-  };
+  useEffect(() => {
+    fetchData();
+    intervalRef.current = setInterval(fetchData, 15000);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [fetchData]);
 
-  const filtered = activeIncidents.filter((inc) => {
+  useEffect(() => {
+    if (realtimeIncidents.length > 0) {
+      const mapped: ActiveIncident[] = realtimeIncidents.map((inc: any, idx: number) => {
+        const cat = getIncidentCategory(inc.incident_type || '');
+        const priority = getPriority(inc.severity || 'MEDIUM');
+        return {
+          id: `${inc.device_id || inc.washroom_id || 'unknown'}-${inc.incident_type || 'incident'}-${idx}`,
+          priority,
+          category: cat.label,
+          categoryIcon: cat.icon,
+          location: `${inc.terminal || ''}-${(inc as any).level || ''} ${(inc as any).type || ''}`,
+          timeElapsed: getTimeElapsed(inc.timestamp || ''),
+          assignedStaff: 'Auto-Detected',
+          status: (inc.severity === 'CRITICAL') ? 'Dispatched' : 'Monitoring',
+          device_id: inc.device_id || inc.washroom_id || '',
+          terminal: inc.terminal || '',
+          severity: inc.severity || 'MEDIUM',
+          value: (inc as any).value || 0,
+          threshold: (inc as any).threshold || 0,
+        };
+      });
+      setIncidents(prev => {
+        if (prev.length === 0) return mapped;
+        const existing = new Set(prev.map(p => `${p.terminal}-${p.device_id}`));
+        const newOnly = mapped.filter(m => !existing.has(`${m.terminal}-${m.device_id}`));
+        const merged = [...newOnly, ...prev].slice(0, 50);
+        setCounts({
+          critical: merged.filter(i => i.priority === 'Critical').length,
+          high: merged.filter(i => i.priority === 'High').length,
+          medium: merged.filter(i => i.priority === 'Medium').length,
+        });
+        return merged;
+      });
+    }
+  }, [realtimeIncidents]);
+
+  const filtered = incidents.filter((inc) => {
     const term = searchTerm.toLowerCase();
     return (
       inc.id.toLowerCase().includes(term) ||
       inc.category.toLowerCase().includes(term) ||
       inc.location.toLowerCase().includes(term) ||
-      inc.assignedStaff.toLowerCase().includes(term)
+      inc.device_id.toLowerCase().includes(term)
     );
   });
 
   return (
     <div className="p-6 space-y-6 animate-fade-in font-sans">
-      {/* Header Actions */}
       <div className="flex justify-between items-end mb-6 flex-wrap gap-4">
         <div>
           <h2 className="text-xl text-on-surface font-bold">Active Incidents</h2>
           <p className="text-xs text-on-surface-variant">Real-time oversight of terminal infrastructure anomalies.</p>
         </div>
-        <button 
-          onClick={() => router.push('/terminal/incidents/summary-details')}
+        <button
+          onClick={() => router.push('/terminal/incidents')}
           className="bg-primary text-on-primary px-6 py-2 rounded shadow-sm hover:brightness-110 active:scale-95 transition-all flex items-center gap-1 font-bold cursor-pointer border-none text-xs"
         >
           <span className="material-symbols-outlined text-sm">add</span>
@@ -107,73 +182,64 @@ export default function ActiveIncidentsDetail() {
         </button>
       </div>
 
-      {/* Summary Dashboard (KPI Cards) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-        {/* Critical */}
         <div className="bg-surface-container-lowest p-4 border-l-4 border-error shadow-sm rounded bg-white">
           <div className="flex justify-between items-start">
             <span className="text-[10px] font-bold text-error uppercase tracking-widest">Critical</span>
             <span className="material-symbols-outlined text-error">emergency</span>
           </div>
           <div className="mt-2">
-            <span className="text-2xl font-bold text-on-surface">04</span>
+            <span className="text-2xl font-bold text-on-surface">{String(counts.critical).padStart(2, '0')}</span>
             <span className="text-xs text-on-surface-variant ml-1">Active Alerts</span>
           </div>
           <div className="mt-1 w-full bg-surface-container-high h-1 rounded-full overflow-hidden">
-            <div className="bg-error h-full w-[15%]"></div>
+            <div className="bg-error h-full" style={{ width: `${counts.critical > 0 ? Math.min(100, (counts.critical / Math.max(incidents.length, 1)) * 100) : 0}%` }}></div>
           </div>
         </div>
-        
-        {/* High */}
+
         <div className="bg-surface-container-lowest p-4 border-l-4 border-[#ff9100] shadow-sm rounded bg-white">
           <div className="flex justify-between items-start">
             <span className="text-[10px] font-bold text-[#ff9100] uppercase tracking-widest">High Priority</span>
             <span className="material-symbols-outlined text-[#ff9100]">priority_high</span>
           </div>
           <div className="mt-2">
-            <span className="text-2xl font-bold text-on-surface">12</span>
+            <span className="text-2xl font-bold text-on-surface">{String(counts.high).padStart(2, '0')}</span>
             <span className="text-xs text-on-surface-variant ml-1">Ongoing</span>
           </div>
           <div className="mt-1 w-full bg-surface-container-high h-1 rounded-full overflow-hidden">
-            <div className="bg-[#ff9100] h-full w-[45%]"></div>
+            <div className="bg-[#ff9100] h-full" style={{ width: `${counts.high > 0 ? Math.min(100, (counts.high / Math.max(incidents.length, 1)) * 100) : 0}%` }}></div>
           </div>
         </div>
 
-        {/* Medium */}
         <div className="bg-surface-container-lowest p-4 border-l-4 border-tertiary shadow-sm rounded bg-white">
           <div className="flex justify-between items-start">
             <span className="text-[10px] font-bold text-tertiary uppercase tracking-widest">Medium</span>
             <span className="material-symbols-outlined text-tertiary">info</span>
           </div>
           <div className="mt-2">
-            <span className="text-2xl font-bold text-on-surface">28</span>
+            <span className="text-2xl font-bold text-on-surface">{String(counts.medium).padStart(2, '0')}</span>
             <span className="text-xs text-on-surface-variant ml-1">Pending</span>
           </div>
           <div className="mt-1 w-full bg-surface-container-high h-1 rounded-full overflow-hidden">
-            <div className="bg-tertiary h-full w-[70%]"></div>
+            <div className="bg-tertiary h-full" style={{ width: `${counts.medium > 0 ? Math.min(100, (counts.medium / Math.max(incidents.length, 1)) * 100) : 0}%` }}></div>
           </div>
         </div>
       </div>
 
-      {/* Incidents List / Table */}
       <div className="bg-surface-container-lowest rounded shadow-sm overflow-hidden border border-outline-variant bg-white">
         <div className="p-6 border-b border-outline-variant flex flex-col sm:flex-row justify-between items-center bg-surface-container-low gap-4">
           <h3 className="text-sm font-bold text-on-surface">Live Incident Feed</h3>
           <div className="flex gap-2 flex-wrap w-full sm:w-auto">
             <div className="relative flex-grow sm:flex-grow-0">
-              <input 
-                type="text" 
-                placeholder="Search incidents..." 
+              <input
+                type="text"
+                placeholder="Search incidents..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10 pr-4 py-1.5 bg-white border border-outline-variant rounded text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 w-full sm:w-64"
               />
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
             </div>
-            <button className="px-4 py-1.5 border border-outline-variant rounded bg-white hover:bg-surface-container-high text-xs flex items-center gap-1 cursor-pointer font-bold">
-              <span className="material-symbols-outlined text-sm">filter_list</span>
-              Filters
-            </button>
           </div>
         </div>
 
@@ -185,28 +251,26 @@ export default function ActiveIncidentsDetail() {
                 <th className="px-6 py-4 text-xs font-bold text-on-surface-variant uppercase">Priority</th>
                 <th className="px-6 py-4 text-xs font-bold text-on-surface-variant uppercase">Category</th>
                 <th className="px-6 py-4 text-xs font-bold text-on-surface-variant uppercase">Location</th>
-                <th className="px-6 py-4 text-xs font-bold text-on-surface-variant uppercase">Time Elapsed</th>
-                <th className="px-6 py-4 text-xs font-bold text-on-surface-variant uppercase">Assigned Staff</th>
+                <th className="px-6 py-4 text-xs font-bold text-on-surface-variant uppercase">Value</th>
                 <th className="px-6 py-4 text-xs font-bold text-on-surface-variant uppercase">Status</th>
                 <th className="px-6 py-4 text-xs font-bold text-on-surface-variant uppercase"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-outline-variant/50 text-xs">
               {filtered.map((inc) => {
-                const priorityPill = 
-                  inc.priority === 'Critical' ? 'bg-error/10 text-error border-error/20' : 
-                  inc.priority === 'High' ? 'bg-[#ff9100]/10 text-[#ff9100] border-[#ff9100]/20' : 
+                const priorityPill =
+                  inc.priority === 'Critical' ? 'bg-error/10 text-error border-error/20' :
+                  inc.priority === 'High' ? 'bg-[#ff9100]/10 text-[#ff9100] border-[#ff9100]/20' :
                   'bg-tertiary/10 text-tertiary border-tertiary/20';
 
-                const statusPill = 
-                  inc.status === 'Dispatched' ? 'bg-primary/10 text-primary border-primary/20' : 
-                  inc.status === 'In Progress' ? 'bg-secondary-container text-on-secondary-container' : 
-                  'bg-surface-container-high text-on-surface-variant border-outline-variant';
+                const statusPill =
+                  inc.status === 'Dispatched' ? 'bg-primary/10 text-primary border-primary/20' :
+                  'bg-secondary-container text-on-secondary-container';
 
                 return (
-                  <tr 
+                  <tr
                     key={inc.id}
-                    onClick={() => handleRowClick(inc.id)}
+                    onClick={() => router.push('/terminal/incidents')}
                     className="hover:bg-surface-container-high/50 transition-colors cursor-pointer"
                   >
                     <td className="px-6 py-4 font-bold text-on-surface">{inc.id}</td>
@@ -224,22 +288,8 @@ export default function ActiveIncidentsDetail() {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-on-surface">{inc.location}</td>
-                    <td className={`px-6 py-4 ${inc.priority === 'Critical' ? 'text-error font-bold' : 'text-on-surface'}`}>
-                      {inc.timeElapsed}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-1">
-                        <div className="w-6 h-6 rounded-full overflow-hidden bg-surface-container-high flex items-center justify-center border border-outline-variant">
-                          {inc.assignedAvatar ? (
-                            <img alt="Staff Portrait" className="w-full h-full object-cover" src={inc.assignedAvatar} />
-                          ) : (
-                            <span className="material-symbols-outlined text-[14px]">person</span>
-                          )}
-                        </div>
-                        <span className={`${inc.assignedStaff === 'Unassigned' ? 'text-on-surface-variant italic' : 'text-on-surface'}`}>
-                          {inc.assignedStaff}
-                        </span>
-                      </div>
+                    <td className={`px-6 py-4 font-mono ${inc.priority === 'Critical' ? 'text-error font-bold' : 'text-on-surface'}`}>
+                      {inc.value?.toFixed(1)} / {inc.threshold}
                     </td>
                     <td className="px-6 py-4">
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-tighter ${statusPill}`}>
@@ -258,71 +308,8 @@ export default function ActiveIncidentsDetail() {
           </table>
         </div>
 
-        {/* Pagination */}
         <div className="px-6 py-4 bg-surface-container-low border-t border-outline-variant flex justify-between items-center">
-          <p className="text-xs text-on-surface-variant font-medium">Showing {filtered.length} of 44 active incidents</p>
-          <div className="flex gap-2">
-            <button className="p-1 border border-outline-variant rounded bg-white hover:bg-surface-container-high transition-colors cursor-pointer">
-              <span className="material-symbols-outlined text-sm">chevron_left</span>
-            </button>
-            <button className="p-1 border border-outline-variant rounded bg-white hover:bg-surface-container-high transition-colors cursor-pointer">
-              <span className="material-symbols-outlined text-sm">chevron_right</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Terminal Layout Quick Map View */}
-      <div className="mt-6 grid grid-cols-1 md:grid-cols-12 gap-6">
-        <div className="md:col-span-8 bg-surface-container-lowest p-6 border border-outline-variant rounded shadow-sm relative overflow-hidden h-[300px] bg-white">
-          <div className="absolute top-4 left-4 z-10 bg-white/90 backdrop-blur p-2 rounded border border-outline-variant shadow-sm">
-            <h4 className="text-xs font-bold uppercase text-on-surface-variant">Live Geographic Context</h4>
-          </div>
-          <div className="w-full h-full bg-surface-container-high flex items-center justify-center relative rounded-lg">
-            <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#006e2f 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
-            <div className="relative w-full h-full">
-              <div className="absolute top-1/4 left-1/3 w-4 h-4 bg-error rounded-full animate-ping"></div>
-              <div className="absolute top-1/4 left-1/3 w-3 h-3 bg-error rounded-full border border-white"></div>
-              <div className="absolute top-1/2 right-1/4 w-3 h-3 bg-[#ff9100] rounded-full border border-white shadow-lg animate-pulse"></div>
-              <div className="absolute bottom-1/4 left-1/2 w-3 h-3 bg-tertiary rounded-full border border-white shadow-lg animate-pulse"></div>
-            </div>
-            <p className="absolute bottom-4 right-4 text-[10px] text-on-surface-variant bg-white/80 px-2 py-1 rounded font-bold">Interactive Terminal Floorplan Map Overlay</p>
-          </div>
-        </div>
-
-        <div className="md:col-span-4 bg-surface-container-lowest p-6 border border-outline-variant rounded shadow-sm flex flex-col justify-between bg-white">
-          <div>
-            <h4 className="text-xs font-bold text-on-surface-variant uppercase mb-2 border-b pb-1 font-bold">Incident Alerts History</h4>
-            <div className="space-y-4 text-xs">
-              <div className="flex gap-2 items-start">
-                <span className="w-2 h-2 rounded-full bg-error mt-1.5 shrink-0"></span>
-                <div>
-                  <p className="font-bold text-on-surface">Critical Power Failure</p>
-                  <p className="text-[10px] text-on-surface-variant mt-0.5">2 mins ago • Gate B12</p>
-                </div>
-              </div>
-              <div className="flex gap-2 items-start opacity-70">
-                <span className="w-2 h-2 rounded-full bg-primary mt-1.5 shrink-0"></span>
-                <div>
-                  <p className="font-bold text-primary">Water Leak Resolved</p>
-                  <p className="text-[10px] text-on-surface-variant mt-0.5">15 mins ago • Hallway F</p>
-                </div>
-              </div>
-              <div className="flex gap-2 items-start">
-                <span className="w-2 h-2 rounded-full bg-tertiary mt-1.5 shrink-0"></span>
-                <div>
-                  <p className="font-bold text-on-surface">Wi-Fi Congestion</p>
-                  <p className="text-[10px] text-on-surface-variant mt-0.5">44 mins ago • Check-in Desks</p>
-                </div>
-              </div>
-            </div>
-          </div>
-          <button 
-            onClick={() => router.push('/terminal')}
-            className="w-full mt-6 text-center text-xs font-bold text-primary hover:underline cursor-pointer border border-outline-variant rounded py-2 hover:bg-surface-container-low bg-white"
-          >
-            Back to Dashboard
-          </button>
+          <p className="text-xs text-on-surface-variant font-medium">Showing {filtered.length} of {incidents.length} active incidents</p>
         </div>
       </div>
     </div>

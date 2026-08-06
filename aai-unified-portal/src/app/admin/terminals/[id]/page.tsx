@@ -107,7 +107,7 @@ export default function TerminalDetailPage() {
 
                   <div className="flex justify-end items-center pt-2">
                     <Link
-                      href={`/terminal/washrooms?terminal=${terminalId}&level=${lvl.level_number}`}
+                      href={`/admin/terminals/${terminalId}/washrooms?level=${lvl.level_number}`}
                       className="inline-flex items-center gap-1 text-xs font-bold text-blue-650 hover:underline"
                     >
                       Inspect Washrooms <ArrowRight size={14} />

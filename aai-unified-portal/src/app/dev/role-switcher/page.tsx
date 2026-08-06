@@ -146,9 +146,9 @@ export default function RoleSwitcherPage() {
                   <div className="flex justify-between items-center text-xs">
                     <span className="text-slate-400 font-semibold uppercase">Password:</span>
                     <div className="flex items-center gap-1.5 font-mono font-bold text-slate-800">
-                      <span>AAI@demo2025</span>
+                      <span>{process.env.NEXT_PUBLIC_DEMO_PASSWORD || 'Not configured'}</span>
                       <button 
-                        onClick={() => handleCopy('AAI@demo2025', cred.role + '_pass')}
+                        onClick={() => handleCopy(process.env.NEXT_PUBLIC_DEMO_PASSWORD || '', cred.role + '_pass')}
                         className="p-1 hover:bg-slate-200 rounded text-slate-450 transition-colors border-none bg-transparent cursor-pointer"
                         title="Copy Password"
                       >

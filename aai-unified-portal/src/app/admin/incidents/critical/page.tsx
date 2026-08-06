@@ -2,17 +2,42 @@
 
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { getIncidents, Incident } from '@/db'
+import { getIncidents, Incident, IncidentStatus } from '@/db'
 import PageHeader from '@/components/ui/PageHeader'
 import DataCard from '@/components/ui/DataCard'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import EmptyState from '@/components/ui/EmptyState'
 import { ShieldAlert, CheckCircle2, ArrowRight } from 'lucide-react'
 import { statusColor } from '@/lib/utils'
+import { useRealtime } from '@/hooks/useRealtime'
 
 export default function CriticalAlertsPage() {
   const [loading, setLoading] = useState(true)
   const [incidents, setIncidents] = useState<Incident[]>([])
+  const { incidents: rtIncidents } = useRealtime()
+
+  useEffect(() => {
+    if (rtIncidents && rtIncidents.length > 0) {
+      const criticalRT = rtIncidents.filter(
+        (inc: any) => inc.severity === 'CRITICAL'
+      ).map((inc: any) => ({
+        id: `${inc.device_id || inc.washroom_id}-${inc.timestamp}`,
+        terminal: inc.terminal,
+        title: inc.description || inc.incident_type || 'Critical Alert',
+        severity: inc.severity,
+        status: 'OPEN' as IncidentStatus,
+        assignedTo: 'Unassigned',
+        timestamp: inc.timestamp,
+      })) as Incident[]
+      setIncidents((prev: Incident[]) => {
+        const merged = [...criticalRT, ...prev]
+        const deduped = merged.filter((item: Incident, index: number, self: Incident[]) =>
+          index === self.findIndex((t: Incident) => t.id === item.id)
+        )
+        return deduped.filter(x => x.severity === 'CRITICAL' && x.status !== 'RESOLVED')
+      })
+    }
+  }, [rtIncidents])
 
   useEffect(() => {
     async function loadData() {

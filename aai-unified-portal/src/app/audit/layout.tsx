@@ -23,9 +23,9 @@ export default async function AuditLayout({
     .where(sql`LOWER(${appUsers.email}) = LOWER(${email})`)
     .limit(1)
 
-  const role = dbUser[0]?.role || (user.publicMetadata as any)?.role || 'ADMIN'
+  const role = dbUser[0]?.role || (user.publicMetadata as any)?.role
 
-  if (role !== 'AUDITOR') {
+  if (!role || role !== 'AUDITOR') {
     redirect(`/unauthorized?required=AUDITOR&current=${role || 'NONE'}`)
   }
 

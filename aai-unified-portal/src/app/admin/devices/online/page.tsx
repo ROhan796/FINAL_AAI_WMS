@@ -1,7 +1,6 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { getDevices, Device } from '@/db'
 import PageHeader from '@/components/ui/PageHeader'
 import DataCard from '@/components/ui/DataCard'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
@@ -9,15 +8,33 @@ import EmptyState from '@/components/ui/EmptyState'
 import { statusColor } from '@/lib/utils'
 import { Cpu } from 'lucide-react'
 
+interface DeviceRow {
+  id: string
+  type: string
+  location: string
+  battery: number
+  lastPing: string
+  status: string
+}
+
 export default function OnlineDevicesPage() {
   const [loading, setLoading] = useState(true)
-  const [devices, setDevices] = useState<Device[]>([])
+  const [devices, setDevices] = useState<DeviceRow[]>([])
 
   useEffect(() => {
     async function loadData() {
       try {
-        const data = await getDevices()
-        setDevices(data.filter(d => d.status === 'ONLINE'))
+        const res = await fetch('/api/da/summary')
+        const data = await res.json()
+        const list = (data.washroom_list || []).map((w: any) => ({
+          id: w.device_id,
+          type: w.type || 'PPM',
+          location: `${w.terminal} - ${w.level}`,
+          battery: w.latest_sensors?.battery ?? 100,
+          lastPing: w.last_updated || new Date().toISOString(),
+          status: (w.whi >= 60 ? 'ONLINE' : 'OFFLINE'),
+        }))
+        setDevices(list.filter((d: DeviceRow) => d.status === 'ONLINE'))
       } catch (err) {
         console.error('Error fetching online devices:', err)
       } finally {

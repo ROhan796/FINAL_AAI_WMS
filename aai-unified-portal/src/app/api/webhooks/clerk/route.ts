@@ -6,12 +6,22 @@ import { db } from '@/db/client'
 import { appUsers } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 
-function detectRole(username: string | null | undefined): string | null {
-  if (!username) return null
-  if (/^AP-\d{3,}$/i.test(username))  return 'ADMIN'
-  if (/^TP-\d{3,}$/i.test(username))  return 'TERMINAL'
-  if (/^ALP-\d{3,}$/i.test(username)) return 'AUDITOR'
-  return null
+function detectRole(username: string | null | undefined, email: string): string {
+  if (username) {
+    if (/^AP-\d{3,}$/i.test(username))  return 'ADMIN'
+    if (/^TP-\d{3,}$/i.test(username))  return 'TERMINAL'
+    if (/^ALP-\d{3,}$/i.test(username)) return 'AUDITOR'
+  }
+  if (email) {
+    const ADMIN_EMAILS = ['rmxdeath@gmail.com', 'admin@aai.gov.in']
+    const TERMINAL_EMAILS = ['mannarohan51@gmail.com', 'terminal@aai.gov.in']
+    const AUDITOR_EMAILS = ['rohanmannas2021@gmail.com', 'auditor@aai.gov.in']
+    const lower = email.toLowerCase()
+    if (ADMIN_EMAILS.includes(lower))     return 'ADMIN'
+    if (TERMINAL_EMAILS.includes(lower))  return 'TERMINAL'
+    if (AUDITOR_EMAILS.includes(lower))   return 'AUDITOR'
+  }
+  return 'TERMINAL'
 }
 
 export async function POST(req: Request) {
@@ -79,8 +89,8 @@ export async function POST(req: Request) {
       ?? email_addresses?.[0]?.email_address
       ?? ''
 
-    // Detect role from username pattern
-    let role = detectRole(username)
+    // Detect role from username/email pattern
+    let role = detectRole(username, primaryEmail)
 
     // If no pattern match, assign TERMINAL as default
     // (Admin can update role manually from Clerk Dashboard)
@@ -136,7 +146,7 @@ export async function POST(req: Request) {
     const primaryEmail = email_addresses?.find((e: any) => e.id === data.primary_email_address_id)?.email_address
       ?? email_addresses?.[0]?.email_address
 
-    const role = (public_metadata?.role as string) ?? detectRole(username) ?? 'TERMINAL'
+    const role = (public_metadata?.role as string) ?? detectRole(username, primaryEmail ?? '') ?? 'TERMINAL'
 
     try {
       await db.update(appUsers)

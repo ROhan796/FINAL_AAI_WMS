@@ -3,18 +3,24 @@ import React from 'react'
 import { Device } from '../../types'
 import { statusColor } from '../../lib/utils'
 import {
-  Battery, BatteryLow, Wifi, WifiOff, Cpu,
+  Battery, BatteryLow, Wifi, WifiOff, Cpu, Signal,
   Wind, Eye, Thermometer, Droplet, Sparkles, Scroll, Lock
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+interface DeviceWithSignal extends Device {
+  signalStrength?: number
+  lastPingTime?: string
+}
+
 interface Props {
-  device: Device
+  device: DeviceWithSignal
 }
 
 export default function DeviceCard({ device }: Props) {
   const isBatteryLow = device.battery < 20
   const isOnline = device.status === 'ONLINE'
+  const signalStrength = device.signalStrength ?? 85
 
   const getDeviceIcon = (type: string) => {
     switch (type.toUpperCase()) {
@@ -37,11 +43,21 @@ export default function DeviceCard({ device }: Props) {
     }
   }
 
-  // Helper for battery color
   const getBatteryColorClass = (bat: number) => {
     if (bat < 20) return 'bg-red-500'
     if (bat < 50) return 'bg-amber-500'
     return 'bg-green-500'
+  }
+
+  const getSignalColorClass = (sig: number) => {
+    if (sig < 30) return 'text-red-500'
+    if (sig < 60) return 'text-amber-500'
+    return 'text-green-600'
+  }
+
+  const getSignalBars = (sig: number) => {
+    const bars = sig < 20 ? 1 : sig < 40 ? 2 : sig < 60 ? 3 : sig < 80 ? 4 : 5
+    return bars
   }
 
   return (
@@ -68,7 +84,6 @@ export default function DeviceCard({ device }: Props) {
         </div>
       </div>
 
-      {/* Battery indicator progress bar */}
       <div className="space-y-1.5">
         <div className="flex justify-between items-center text-xs">
           <span className="text-slate-500 flex items-center gap-1 font-medium">
@@ -84,6 +99,31 @@ export default function DeviceCard({ device }: Props) {
             className={cn("h-full rounded-full transition-all duration-300", getBatteryColorClass(device.battery))}
             style={{ width: `${device.battery}%` }}
           />
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex justify-between items-center text-xs">
+          <span className="text-slate-500 flex items-center gap-1 font-medium">
+            <Signal size={12} className={getSignalColorClass(signalStrength)} />
+            Signal
+          </span>
+          <span className={cn("font-bold font-mono", getSignalColorClass(signalStrength))}>
+            {signalStrength}%
+          </span>
+        </div>
+        <div className="flex gap-0.5">
+          {Array.from({ length: 5 }, (_, i) => (
+            <div
+              key={i}
+              className={cn(
+                "h-1.5 flex-1 rounded-full transition-all",
+                i < getSignalBars(signalStrength)
+                  ? signalStrength >= 60 ? 'bg-green-500' : signalStrength >= 30 ? 'bg-amber-500' : 'bg-red-500'
+                  : 'bg-slate-100'
+              )}
+            />
+          ))}
         </div>
       </div>
 

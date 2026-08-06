@@ -45,8 +45,10 @@ class AnalyticsService:
                 whi_score = whi_calculator.compute_whi(telemetry)
                 telemetry.whi_score = whi_score
                 
-                # 6. Update Circular History
-                device_history_buffer.add_reading(telemetry.device_id, whi_score)
+                # 6. Update Circular History (with timestamp for trend charts)
+                device_history_buffer.add_reading(
+                    telemetry.device_id, whi_score, telemetry.recorded_at
+                )
                 
                 # 7. Incident Detection & Debouncing
                 breaches = incident_detector.detect_breaches(telemetry)

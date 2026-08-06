@@ -1,32 +1,77 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
-import { getDevices, Device } from '@/db'
+import React, { useState, useEffect, useRef } from 'react'
 import PageHeader from '@/components/ui/PageHeader'
 import DataCard from '@/components/ui/DataCard'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import EmptyState from '@/components/ui/EmptyState'
 import { statusColor } from '@/lib/utils'
 import { Cpu, Search } from 'lucide-react'
+import { useRealtime } from '@/hooks/useRealtime'
+
+interface DeviceRow {
+  id: string
+  type: string
+  location: string
+  battery: number
+  status: 'ONLINE' | 'OFFLINE' | 'MAINTENANCE'
+  lastPing: string
+}
 
 export default function AdminDevicesPage() {
   const [loading, setLoading] = useState(true)
-  const [devices, setDevices] = useState<Device[]>([])
+  const [devices, setDevices] = useState<DeviceRow[]>([])
   const [filter, setFilter] = useState('ALL')
   const [search, setSearch] = useState('')
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const { devices: rtDevices } = useRealtime()
+
+  useEffect(() => {
+    if (rtDevices && rtDevices.length > 0) {
+      setDevices((prev: DeviceRow[]) => {
+        const rtRows: DeviceRow[] = rtDevices.map((d: any) => ({
+          id: d.device_id,
+          type: d.type || 'PPM',
+          location: `Terminal ${d.terminal} - ${d.level}`,
+          battery: d.battery_pct ?? 100,
+          status: (d.status === 'MAINTENANCE' ? 'MAINTENANCE' : d.status === 'OFFLINE' ? 'OFFLINE' : 'ONLINE') as DeviceRow['status'],
+          lastPing: d.last_ping ? new Date(d.last_ping).toLocaleTimeString() : new Date().toLocaleTimeString(),
+        }))
+        if (prev.length === 0) return rtRows
+        const merged = [...rtRows, ...prev]
+        const deduped = merged.filter((item: DeviceRow, index: number, self: DeviceRow[]) =>
+          index === self.findIndex((t: DeviceRow) => t.id === item.id)
+        )
+        return deduped
+      })
+    }
+  }, [rtDevices])
 
   useEffect(() => {
     async function loadData() {
       try {
-        const data = await getDevices()
-        setDevices(data)
+        const res = await fetch('/api/da/summary', { cache: 'no-store' })
+        if (res.ok) {
+          const data = await res.json()
+          const rows: DeviceRow[] = (data.washroom_list || []).map((w: any) => ({
+            id: w.device_id,
+            type: w.type || 'PPM',
+            location: `Terminal ${w.terminal} - ${w.level}`,
+            battery: w.latest_sensors?.battery_level ?? 100,
+            status: (w.status === 'Critical' ? 'MAINTENANCE' : 'ONLINE') as DeviceRow['status'],
+            lastPing: w.latest_sensors?.updated_at ? new Date(w.latest_sensors.updated_at).toLocaleTimeString() : new Date().toLocaleTimeString(),
+          }))
+          setDevices(rows)
+        }
       } catch (err) {
-        console.error('Error fetching devices list:', err)
+        console.error('Error fetching devices from DA Engine:', err)
       } finally {
         setLoading(false)
       }
     }
     loadData()
+    intervalRef.current = setInterval(loadData, 30000)
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
   }, [])
 
   const filteredDevices = devices.filter((d) => {
@@ -34,7 +79,6 @@ export default function AdminDevicesPage() {
       d.id.toLowerCase().includes(search.toLowerCase()) ||
       d.type.toLowerCase().includes(search.toLowerCase()) ||
       d.location.toLowerCase().includes(search.toLowerCase())
-
     const matchesFilter = filter === 'ALL' || d.status.toUpperCase() === filter.toUpperCase()
     return matchesSearch && matchesFilter
   })

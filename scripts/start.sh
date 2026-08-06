@@ -2,9 +2,10 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BACKEND_DIR="$SCRIPT_DIR/aai-wms-backend"
-DA_DIR="$SCRIPT_DIR/da-engine"
-PORTAL_DIR="$SCRIPT_DIR/aai-unified-portal"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BACKEND_DIR="$ROOT/aai-wms-backend"
+DA_DIR="$ROOT/da-engine"
+PORTAL_DIR="$ROOT/aai-unified-portal"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -97,8 +98,8 @@ fi
 log "Building Next.js portal..."
 npm run build
 
-log "Starting Next.js portal on port 3000..."
-npm start -- --port 3000 &
+log "Starting Next.js portal on port 3000 (with WebSocket proxy)..."
+npx tsx server.ts &
 PORTAL_PID=$!
 echo $PORTAL_PID > "$SCRIPT_DIR/.portal.pid"
 

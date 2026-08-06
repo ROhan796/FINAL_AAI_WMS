@@ -26,37 +26,37 @@ export async function GET(request: Request) {
       }
     }
 
-    // 2. If not found in DB, fallback to regex-based detection
+    // 2. If not found in DB, fallback to email-based detection
     if (!role || !['ADMIN', 'TERMINAL', 'AUDITOR'].includes(role)) {
       const normEmail = email.toLowerCase()
-      const normUser = username.toLowerCase()
+      const normUser = username?.toLowerCase() || ''
+
+      const ADMIN_EMAILS = ['rmxdeath@gmail.com', 'admin@aai.gov.in']
+      const TERMINAL_EMAILS = ['mannarohan51@gmail.com', 'terminal@aai.gov.in']
+      const AUDITOR_EMAILS = ['rohanmannas2021@gmail.com', 'auditor@aai.gov.in']
 
       if (
-        /^ap-\d{3}$/i.test(username) ||
-        /^ap-\d{3}@/i.test(email) ||
+        ADMIN_EMAILS.includes(normEmail) ||
         normUser.includes('admin') ||
         normEmail.includes('admin')
       ) {
         role = 'ADMIN'
       } else if (
-        /^tp-\d{3}$/i.test(username) ||
-        /^tp-\d{3}@/i.test(email) ||
+        TERMINAL_EMAILS.includes(normEmail) ||
         normUser.includes('terminal') ||
-        normEmail.includes('terminal') ||
-        normUser.includes('manager') ||
-        normEmail.includes('manager')
+        normEmail.includes('terminal')
       ) {
         role = 'TERMINAL'
       } else if (
-        /^alp-\d{3}$/i.test(username) ||
-        /^alp-\d{3}@/i.test(email) ||
+        AUDITOR_EMAILS.includes(normEmail) ||
         normUser.includes('audit') ||
         normEmail.includes('audit')
       ) {
         role = 'AUDITOR'
       } else {
-        // Fallback for custom dev testers
-        role = 'ADMIN'
+        return NextResponse.redirect(
+          new URL(`/unauthorized?required=ANY&current=NONE`, request.url)
+        )
       }
     }
 
@@ -82,8 +82,12 @@ export async function GET(request: Request) {
     )
   } catch (error) {
     console.error('Redirect handler error:', error)
+    console.error('Error details:', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+    })
     return NextResponse.redirect(
-      new URL('/unauthorized?required=ERROR&current=ERROR', request.url)
+      new URL('/sign-in?error=redirect_failed', request.url)
     )
   }
 }

@@ -8,28 +8,163 @@ import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import EmptyState from '@/components/ui/EmptyState'
 import RoleBadge from '@/components/auth/RoleBadge'
 import { statusColor } from '@/lib/utils'
-import { Users, Search, Plus } from 'lucide-react'
+import { Users, Search, Plus, Settings, X, Check, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+function EditUserModal({
+  user,
+  onClose,
+  onSuccess,
+}: {
+  user: AppUser
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [form, setForm] = useState({
+    zone: '',
+    shift_start: '',
+    shift_end: '',
+  })
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState(false)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setSubmitting(true)
+    setError(null)
+
+    try {
+      const payload: Record<string, string> = {}
+      if (form.zone) payload.zone = form.zone
+      if (form.shift_start) payload.shift_start = form.shift_start
+      if (form.shift_end) payload.shift_end = form.shift_end
+
+      if (Object.keys(payload).length === 0) {
+        setError('No changes to update')
+        setSubmitting(false)
+        return
+      }
+
+      const res = await fetch(`/api/wms/admin/users/${user.email}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to update user')
+      }
+
+      setSuccess(true)
+      setTimeout(() => {
+        onSuccess()
+        onClose()
+      }, 1000)
+    } catch (err: any) {
+      setError(err.message || 'Something went wrong')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white border border-slate-200 rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Edit User Attributes</h2>
+            <p className="text-sm text-slate-500 mt-0.5">Update zone and shift for {user.name}</p>
+          </div>
+          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600">
+              {error}
+            </div>
+          )}
+          {success && (
+            <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-600 flex items-center gap-2">
+              <Check size={16} /> User attributes updated successfully
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Zone Assignment</label>
+            <select
+              value={form.zone}
+              onChange={e => setForm(p => ({ ...p, zone: e.target.value }))}
+              className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
+            >
+              <option value="">No change</option>
+              <option value="T1">Terminal 1</option>
+              <option value="T2">Terminal 2</option>
+              <option value="T3">Terminal 3</option>
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Shift Start</label>
+              <input
+                type="time"
+                value={form.shift_start}
+                onChange={e => setForm(p => ({ ...p, shift_start: e.target.value }))}
+                className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Shift End</label>
+              <input
+                type="time"
+                value={form.shift_end}
+                onChange={e => setForm(p => ({ ...p, shift_end: e.target.value }))}
+                className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 font-medium py-2.5 rounded-xl transition-colors text-sm">
+              Cancel
+            </button>
+            <button type="submit" disabled={submitting || success} className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-xl transition-colors text-sm flex items-center justify-center gap-2">
+              {submitting ? <><RefreshCw size={14} className="animate-spin" /> Updating...</> : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
 
 export default function UsersPage() {
   const [loading, setLoading] = useState(true)
   const [users, setUsers] = useState<AppUser[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [filterRole, setFilterRole] = useState<'ALL' | Role>('ALL')
+  const [editingUser, setEditingUser] = useState<AppUser | null>(null)
 
   useEffect(() => {
-    async function loadData() {
-      try {
-        const data = await getAppUsers()
-        setUsers(data)
-      } catch (err) {
-        console.error('Error fetching system users:', err)
-      } finally {
-        setLoading(false)
-      }
-    }
     loadData()
   }, [])
+
+  async function loadData() {
+    try {
+      const data = await getAppUsers()
+      setUsers(data)
+    } catch (err) {
+      console.error('Error fetching system users:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const filteredUsers = users.filter((user) => {
     const matchesSearch =
@@ -146,6 +281,7 @@ export default function UsersPage() {
                   <th className="px-6 py-4 font-semibold uppercase tracking-wider">Role Authority</th>
                   <th className="px-6 py-4 font-semibold uppercase tracking-wider">Status</th>
                   <th className="px-6 py-4 font-semibold uppercase tracking-wider">Last Sync</th>
+                  <th className="px-6 py-4 font-semibold uppercase tracking-wider text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
@@ -168,6 +304,15 @@ export default function UsersPage() {
                     <td className="px-6 py-4 text-xs text-slate-500 font-mono">
                       {user.lastLogin}
                     </td>
+                    <td className="px-6 py-4 text-right">
+                      <button
+                        onClick={() => setEditingUser(user)}
+                        className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                      >
+                        <Settings size={12} />
+                        Edit
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -175,6 +320,14 @@ export default function UsersPage() {
           </div>
         )}
       </DataCard>
+
+      {editingUser && (
+        <EditUserModal
+          user={editingUser}
+          onClose={() => setEditingUser(null)}
+          onSuccess={loadData}
+        />
+      )}
     </div>
   )
 }

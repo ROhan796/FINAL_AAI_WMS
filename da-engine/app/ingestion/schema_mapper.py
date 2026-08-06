@@ -29,6 +29,10 @@ class SchemaMapper:
         # Occupancy from either field set
         occupancy = int(payload.occupancy_inside) if payload.occupancy_inside is not None else (payload.occupancy_count or 0)
 
+        # CRITICAL: raw_whi must map to whi_score (NOT cleanliness_score)
+        # This is the pre-computed WHI from the device firmware
+        whi_score = payload.raw_whi if payload.raw_whi is not None else 100.0
+
         return {
             "device_id": device_id,
             "terminal_id": terminal_id,
@@ -44,7 +48,9 @@ class SchemaMapper:
             "soap_pct": 100.0,
             "paper_pct": 100.0,
             "sanitizer_pct": 100.0,
-            "cleanliness_score": payload.raw_whi if payload.raw_whi is not None else 100.0,
+            "cleanliness_score": whi_score,
+            # whi_score is what the API endpoints read — MUST be set from raw_whi
+            "whi_score": whi_score,
             # Penalty fields passed through
             "penalty_nh3": payload.penalty_nh3 if payload.penalty_nh3 is not None else 0.0,
             "penalty_h2s": payload.penalty_h2s if payload.penalty_h2s is not None else 0.0,

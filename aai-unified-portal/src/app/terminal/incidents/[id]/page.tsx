@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { getIncidents, Incident } from '@/db'
+import { useRealtime } from '@/hooks/useRealtime'
 import PageHeader from '@/components/ui/PageHeader'
 import DataCard from '@/components/ui/DataCard'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
@@ -16,6 +16,17 @@ interface TimelineItem {
   desc: string
   time: string
   status: 'resolved' | 'in-progress' | 'created'
+}
+
+interface IncidentData {
+  id: string
+  title: string
+  terminal: string
+  severity: string
+  status: string
+  assignedTo: string
+  timestamp: string
+  description?: string
 }
 
 function getIssueType(title: string): string {
@@ -33,22 +44,34 @@ export default function TerminalIncidentDetailPage() {
   const router = useRouter()
   const { id } = useParams()
   const incidentId = typeof id === 'string' ? id : ''
+  const { incidents: rtIncidents } = useRealtime()
 
   const [loading, setLoading] = useState(true)
-  const [incident, setIncident] = useState<Incident | null>(null)
+  const [incident, setIncident] = useState<IncidentData | null>(null)
   const [timeline, setTimeline] = useState<TimelineItem[]>([])
 
   useEffect(() => {
     async function loadIncident() {
       if (!incidentId) return
       try {
-        const list = await getIncidents()
-        const found = list.find(x => x.id === incidentId)
+        const res = await fetch('/api/da/incidents')
+        const data = await res.json()
+        const list = data.incidents || data || []
+        const found = list.find((x: any) => (x.id || x.device_id) === incidentId)
         if (found) {
-          setIncident(found)
+          const inc: IncidentData = {
+            id: found.id || found.device_id,
+            title: found.title || found.incident_type || found.description || 'Incident',
+            terminal: found.terminal || found.device_id?.split('-')[0] || 'Unknown',
+            severity: found.severity || 'HIGH',
+            status: found.status || 'OPEN',
+            assignedTo: found.assigned_to || 'Unassigned',
+            timestamp: found.created_at || found.timestamp || new Date().toISOString(),
+            description: found.description,
+          }
+          setIncident(inc)
           setTimeline([
-            { title: 'Incident Dispatched', desc: `Assigned to ${found.assignedTo} for resolution.`, time: '10 mins ago', status: 'in-progress' },
-            { title: 'Incident Logged', desc: `Automatic system alert generated: "${found.title}"`, time: '15 mins ago', status: 'created' }
+            { title: 'Incident Logged', desc: inc.description || `Alert triggered on ${inc.terminal}`, time: new Date(inc.timestamp).toLocaleString(), status: 'created' },
           ])
         }
       } catch (err) {
@@ -60,8 +83,24 @@ export default function TerminalIncidentDetailPage() {
     loadIncident()
   }, [incidentId])
 
-  const handleUpdateStatus = (newStatus: 'IN_PROGRESS' | 'RESOLVED') => {
+  // Merge real-time incident updates
+  useEffect(() => {
+    if (!incident || rtIncidents.length === 0) return
+    const rt = rtIncidents.find((r: any) => (r.device_id || r.washroom_id) === incident.id)
+    if (rt && rt.timestamp !== incident.timestamp) {
+      setTimeline(prev => [
+        { title: 'Real-time Update', desc: rt.description || `State changed: ${rt.old_state} → ${rt.new_state}`, time: new Date(rt.timestamp).toLocaleString(), status: 'in-progress' },
+        ...prev,
+      ])
+    }
+  }, [rtIncidents, incident])
+
+  const handleUpdateStatus = async (newStatus: 'IN_PROGRESS' | 'RESOLVED') => {
     if (!incident) return
+    try {
+      const action = newStatus === 'RESOLVED' ? 'resolve' : 'acknowledge'
+      await fetch(`/api/wms/incidents/${incident.id}/${action}`, { method: 'POST' })
+    } catch {}
     const updated = { ...incident, status: newStatus }
     setIncident(updated)
     setTimeline(prev => [

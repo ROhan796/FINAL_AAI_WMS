@@ -2,16 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const DA_BASE = process.env.NEXT_PUBLIC_DA_ENGINE_URL ?? 'http://localhost:8001';
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 30;
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> }
 ) {
-  const path = params.path.join('/');
+  const { path } = await params;
   try {
-    const res = await fetch(`${DA_BASE}/api/${path}`, {
-      cache: 'no-store',
+    const res = await fetch(`${DA_BASE}/api/${path.join('/')}`, {
+      next: { revalidate: 30 },
       headers: { 'Content-Type': 'application/json' },
     });
     const data = await res.json();
