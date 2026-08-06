@@ -1,0 +1,4 @@
+﻿ALTER ROLE aai_app_worker WITH PASSWORD 'b6ace5abf7c042c40e838b63ceaffbf596952409cbc92e0b96075c9f9cde4c10';
+GRANT USAGE ON SCHEMA public TO aai_app_worker;
+GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA public TO aai_app_worker;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO aai_app_worker;

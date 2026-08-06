@@ -1,0 +1,339 @@
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # Clustered EMQX MQTT Brokers
+  emqx1:
+    image: emqx:5.8@sha256:2eb7ca866279e39883a77e15af3fc6a8cef8399d590be76bd5439aca3897366d
+    container_name: emqx1
+    hostname: emqx1.iot-network
+    restart: unless-stopped
+    environment:
+      - EMQX_NODE__NAME=emqx1@emqx1.iot-network
+      - EMQX_NODE__COOKIE=${EMQX_NODE_COOKIE}
+      - EMQX_CLUSTER__DISCOVERY_STRATEGY=static
+      - EMQX_CLUSTER__STATIC__SEEDS=[emqx1@emqx1.iot-network,emqx2@emqx2.iot-network,emqx3@emqx3.iot-network]
+      - EMQX_DASHBOARD__DEFAULT_USERNAME=${EMQX_DASHBOARD_USER}
+      - EMQX_DASHBOARD__DEFAULT_PASSWORD=${EMQX_DASHBOARD_PASSWORD}
+    healthcheck:
+      test: [ "CMD", "/opt/emqx/bin/emqx", "ctl", "status" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+    networks:
+      - frontend
+      - backend
+    volumes:
+      - ./certs/emqx:/opt/emqx/etc/certs:ro
+      - ./emqx/emqx.conf:/opt/emqx/etc/emqx.conf:ro
+      - ./emqx/acl.json:/opt/emqx/etc/acl.json:ro
+
+  emqx2:
+    image: emqx:5.8@sha256:2eb7ca866279e39883a77e15af3fc6a8cef8399d590be76bd5439aca3897366d
+    container_name: emqx2
+    hostname: emqx2.iot-network
+    restart: unless-stopped
+    environment:
+      - EMQX_NODE__NAME=emqx2@emqx2.iot-network
+      - EMQX_NODE__COOKIE=${EMQX_NODE_COOKIE}
+      - EMQX_CLUSTER__DISCOVERY_STRATEGY=static
+      - EMQX_CLUSTER__STATIC__SEEDS=[emqx1@emqx1.iot-network,emqx2@emqx2.iot-network,emqx3@emqx3.iot-network]
+      - EMQX_DASHBOARD__DEFAULT_USERNAME=${EMQX_DASHBOARD_USER}
+      - EMQX_DASHBOARD__DEFAULT_PASSWORD=${EMQX_DASHBOARD_PASSWORD}
+    healthcheck:
+      test: [ "CMD", "/opt/emqx/bin/emqx", "ctl", "status" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+    networks:
+      - frontend
+      - backend
+    volumes:
+      - ./certs/emqx:/opt/emqx/etc/certs:ro
+      - ./emqx/emqx.conf:/opt/emqx/etc/emqx.conf:ro
+      - ./emqx/acl.json:/opt/emqx/etc/acl.json:ro
+
+  emqx3:
+    image: emqx:5.8@sha256:2eb7ca866279e39883a77e15af3fc6a8cef8399d590be76bd5439aca3897366d
+    container_name: emqx3
+    hostname: emqx3.iot-network
+    restart: unless-stopped
+    environment:
+      - EMQX_NODE__NAME=emqx3@emqx3.iot-network
+      - EMQX_NODE__COOKIE=${EMQX_NODE_COOKIE}
+      - EMQX_CLUSTER__DISCOVERY_STRATEGY=static
+      - EMQX_CLUSTER__STATIC__SEEDS=[emqx1@emqx1.iot-network,emqx2@emqx2.iot-network,emqx3@emqx3.iot-network]
+      - EMQX_DASHBOARD__DEFAULT_USERNAME=${EMQX_DASHBOARD_USER}
+      - EMQX_DASHBOARD__DEFAULT_PASSWORD=${EMQX_DASHBOARD_PASSWORD}
+    healthcheck:
+      test: [ "CMD", "/opt/emqx/bin/emqx", "ctl", "status" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+    networks:
+      - frontend
+      - backend
+    volumes:
+      - ./certs/emqx:/opt/emqx/etc/certs:ro
+      - ./emqx/emqx.conf:/opt/emqx/etc/emqx.conf:ro
+      - ./emqx/acl.json:/opt/emqx/etc/acl.json:ro
+
+  # HAProxy Load Balancer - Node 1
+  haproxy1:
+    image: haproxy:2.8-alpine@sha256:e53d2a29931ac0f8014b89ac49e5323ce50855a7bf39c58fa4dd5deb8e824d2a
+    container_name: haproxy1
+    restart: unless-stopped
+    ports:
+      - "8883:8883" # MQTT over SSL (mTLS)
+      - "18083:18083" # EMQX Dashboard over SSL
+      - "443:443" # FastAPI over SSL
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./certs/haproxy:/etc/haproxy/certs:ro
+    depends_on:
+      emqx1:
+        condition: service_healthy
+      emqx2:
+        condition: service_healthy
+      emqx3:
+        condition: service_healthy
+    networks:
+      frontend:
+        ipv4_address: 172.20.1.100
+      backend:
+        ipv4_address: 172.20.2.100
+    logging: *default-logging
+
+  # Keepalived failover manager for haproxy1
+  keepalived1:
+    image: osixia/keepalived:2.0.20@sha256:ba2a6419532cef068afc3586a6c597fd3b9fd8472592520c2f011d23c4672deb
+    container_name: keepalived1
+    network_mode: "service:haproxy1"
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - NET_BROADCAST
+    environment:
+      - KEEPALIVED_INTERFACE=eth0
+      - KEEPALIVED_VIRTUAL_IPS=172.20.1.10
+      - KEEPALIVED_UNICAST_PEERS=#PYTHON2BASH:['172.20.1.101']
+      - KEEPALIVED_STATE=MASTER
+      - KEEPALIVED_PRIORITY=101
+      - KEEPALIVED_ROUTER_ID=51
+    depends_on:
+      - haproxy1
+    restart: unless-stopped
+
+  # HAProxy Load Balancer - Node 2
+  haproxy2:
+    image: haproxy:2.8-alpine@sha256:e53d2a29931ac0f8014b89ac49e5323ce50855a7bf39c58fa4dd5deb8e824d2a
+    container_name: haproxy2
+    restart: unless-stopped
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./certs/haproxy:/etc/haproxy/certs:ro
+    depends_on:
+      emqx1:
+        condition: service_healthy
+      emqx2:
+        condition: service_healthy
+      emqx3:
+        condition: service_healthy
+    networks:
+      frontend:
+        ipv4_address: 172.20.1.101
+      backend:
+        ipv4_address: 172.20.2.101
+    logging: *default-logging
+
+  # Keepalived failover manager for haproxy2
+  keepalived2:
+    image: osixia/keepalived:2.0.20@sha256:ba2a6419532cef068afc3586a6c597fd3b9fd8472592520c2f011d23c4672deb
+    container_name: keepalived2
+    network_mode: "service:haproxy2"
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - NET_BROADCAST
+    environment:
+      - KEEPALIVED_INTERFACE=eth0
+      - KEEPALIVED_VIRTUAL_IPS=172.20.1.10
+      - KEEPALIVED_UNICAST_PEERS=#PYTHON2BASH:['172.20.1.100']
+      - KEEPALIVED_STATE=BACKUP
+      - KEEPALIVED_PRIORITY=100
+      - KEEPALIVED_ROUTER_ID=51
+    depends_on:
+      - haproxy2
+    restart: unless-stopped
+
+  # Containerized FastAPI Application Ingestion/Worker pipeline
+  fastapi:
+    build: .
+    container_name: fastapi
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    # We no longer expose port 8000 directly to the host for security.
+    # It is terminated and load-balanced via HAProxy on SSL port 443.
+    environment:
+      - MQTT_HOST=172.20.1.10
+      - MQTT_PORT=8883
+      - MQTT_USE_TLS=True
+      - MQTT_CA_CERT_PATH=/certs/ca.crt
+      - MQTT_CLIENT_CERT_PATH=/certs/client.crt
+      - MQTT_CLIENT_KEY_PATH=/certs/client.key
+      - REDIS_URL=redis://washroom-redis:6379/0
+      - POSTGRES_URL=postgresql+asyncpg://aai_app_worker@washroom-timescaledb:5432/washroom_db?sslmode=require
+      - POSTGRES_SUPERUSER_URL=postgresql+asyncpg://postgres@washroom-timescaledb:5432/washroom_db?sslmode=require
+      - RATE_LIMIT_MESSAGES=10
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - AAI_APP_WORKER_PASSWORD=b6ace5abf7c042c40e838b63ceaffbf596952409cbc92e0b96075c9f9cde4c10
+      - POSTGRES_PASSWORD=6cdab6f3d5270c9739ba920d3e0b2016
+      - OPERATOR_PASSWORD=N3fc/fiIi55E3+O4qr4FRw==
+      - SUPERVISOR_PASSWORD=BchlfO/NzVtq69rKM6+BqQ==
+      - JWT_SECRET_KEY=fb5043cd507ccd0cda55f97c2754ba01474b68abdad4726d4c57ceaf2c38470f
+      - REDIS_PASSWORD=35d917a9b4e47447f2ec4b6ec3944e51
+    secrets:
+      - postgres_password
+      - redis_password
+      - aai_app_worker_password
+      - jwt_secret_key
+      - operator_password
+      - supervisor_password
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      keepalived1:
+        condition: service_started
+      keepalived2:
+        condition: service_started
+    healthcheck:
+      test: [ "CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health\")'" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    logging: *default-logging
+    networks:
+      - frontend
+      - backend
+      - data
+    volumes:
+      - ./certs/backend:/certs:ro
+
+
+  # Redis for Token Buckets & Incident State Machine
+  redis:
+    image: redis:7.2-alpine@sha256:dfa18828cbc07b3ae6a95ec7343f6c214fdee2d836197b4be8e9904420762cd8
+    container_name: washroom-redis
+    restart: unless-stopped
+    ports:
+      - "6389:6379"
+    secrets:
+      - redis_password
+    volumes:
+      - redis_data:/data
+    command: >
+      sh -c "redis-server --save 60 1 --loglevel warning --requirepass \$(cat /run/secrets/redis_password)"
+    healthcheck:
+      test: [ "CMD-SHELL", "redis-cli -a $(cat /run/secrets/redis_password) --no-auth-warning ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+    networks:
+      - data
+
+  # PostgreSQL + TimescaleDB for Telemetry Analytics
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16@sha256:68faf0bca42125ff98228a8f5a379bcf0ac588d8156f716be8aaf9befd65857f
+    container_name: washroom-timescaledb
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    # We no longer expose port 5433 directly to the host for security.
+    secrets:
+      - postgres_password
+      - aai_app_worker_password
+
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
+      - POSTGRES_DB=washroom_db
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./db_init:/docker-entrypoint-initdb.d
+      - ./certs/postgres:/certs:ro
+    # Copy host certificates to /tmp inside container to ensure proper permissions (0600) for key file
+    command: >
+      sh -c "
+      cp /certs/postgres.crt /tmp/server.crt &&
+      cp /certs/postgres.key /tmp/server.key &&
+      cp /certs/ca.crt /tmp/ca.crt &&
+      chown postgres:postgres /tmp/server.key /tmp/server.crt /tmp/ca.crt &&
+      chmod 600 /tmp/server.key &&
+      exec docker-entrypoint.sh postgres
+      -c ssl=on
+      -c ssl_cert_file=/tmp/server.crt
+      -c ssl_key_file=/tmp/server.key
+      -c ssl_ca_file=/tmp/ca.crt
+      -c hba_file=/certs/pg_hba.conf"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+    networks:
+      - data
+
+volumes:
+  redis_data:
+  timescaledb_data:
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  emqx_dashboard_password:
+    file: ./secrets/emqx_dashboard_password.txt
+  redis_password:
+    file: ./secrets/redis_password.txt
+  aai_app_worker_password:
+    file: ./secrets/aai_app_worker_password.txt
+  jwt_secret_key:
+    file: ./secrets/jwt_secret_key.txt
+  operator_password:
+    file: ./secrets/operator_password.txt
+  supervisor_password:
+    file: ./secrets/supervisor_password.txt
+
+
+networks:
+  frontend:
+    name: frontend
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.1.0/24
+  backend:
+    name: backend
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.2.0/24
+  data:
+    name: data
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.3.0/24

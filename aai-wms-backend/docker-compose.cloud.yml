@@ -1,0 +1,124 @@
+# ══════════════════════════════════════════════════════════════
+# Docker Compose — Cloud Deployment (HAProxy Only)
+# All other services (EMQX, Redis, PostgreSQL) run in the cloud.
+# This file runs ONLY on the Oracle Cloud Free Tier VM.
+# ══════════════════════════════════════════════════════════════
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # ─────────────────────────────────────────────────────────
+  # HAProxy Load Balancer — Node 1 (MASTER)
+  # ─────────────────────────────────────────────────────────
+  haproxy1:
+    image: haproxy:2.8-alpine
+    container_name: haproxy1
+    restart: unless-stopped
+    ports:
+      - "8883:8883"    # MQTT over SSL (TCP pass-through)
+      - "18083:18083"  # EMQX Dashboard over SSL
+      - "443:443"      # FastAPI over SSL
+      - "8001:8001"    # DA Engine over SSL
+    volumes:
+      - ./haproxy/haproxy-cloud.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./certs/haproxy:/etc/haproxy/certs:ro
+    networks:
+      frontend:
+        ipv4_address: 172.20.1.100
+      backend:
+        ipv4_address: 172.20.2.100
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "haproxy", "-c", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─────────────────────────────────────────────────────────
+  # Keepalived — Node 1 (MASTER)
+  # ─────────────────────────────────────────────────────────
+  keepalived1:
+    image: osixia/keepalived:2.0.20
+    container_name: keepalived1
+    network_mode: "service:haproxy1"
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - NET_BROADCAST
+    environment:
+      - KEEPALIVED_INTERFACE=eth0
+      - KEEPALIVED_VIRTUAL_IPS=172.20.1.10
+      - KEEPALIVED_UNICAST_PEERS=#PYTHON2BASH:['172.20.1.101']
+      - KEEPALIVED_STATE=MASTER
+      - KEEPALIVED_PRIORITY=101
+      - KEEPALIVED_ROUTER_ID=51
+    depends_on:
+      - haproxy1
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────
+  # HAProxy Load Balancer — Node 2 (BACKUP)
+  # ─────────────────────────────────────────────────────────
+  haproxy2:
+    image: haproxy:2.8-alpine
+    container_name: haproxy2
+    restart: unless-stopped
+    ports:
+      - "8884:8883"
+      - "18084:18083"
+      - "444:443"
+      - "8002:8001"
+    volumes:
+      - ./haproxy/haproxy-cloud.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./certs/haproxy:/etc/haproxy/certs:ro
+    networks:
+      frontend:
+        ipv4_address: 172.20.1.101
+      backend:
+        ipv4_address: 172.20.2.101
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "haproxy", "-c", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─────────────────────────────────────────────────────────
+  # Keepalived — Node 2 (BACKUP)
+  # ─────────────────────────────────────────────────────────
+  keepalived2:
+    image: osixia/keepalived:2.0.20
+    container_name: keepalived2
+    network_mode: "service:haproxy2"
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - NET_BROADCAST
+    environment:
+      - KEEPALIVED_INTERFACE=eth0
+      - KEEPALIVED_VIRTUAL_IPS=172.20.1.10
+      - KEEPALIVED_UNICAST_PEERS=#PYTHON2BASH:['172.20.1.100']
+      - KEEPALIVED_STATE=BACKUP
+      - KEEPALIVED_PRIORITY=100
+      - KEEPALIVED_ROUTER_ID=51
+    depends_on:
+      - haproxy2
+    restart: unless-stopped
+
+networks:
+  frontend:
+    name: frontend
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.1.0/24
+  backend:
+    name: backend
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.2.0/24

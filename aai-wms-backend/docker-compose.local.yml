@@ -1,0 +1,48 @@
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # PostgreSQL + TimescaleDB for Telemetry Analytics
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: washroom-timescaledb
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=6cdab6f3d5270c9739ba920d3e0b2016
+      - POSTGRES_DB=washroom_db
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./db_init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  # Redis for Token Buckets & Incident State Machine
+  redis:
+    image: redis:7.2-alpine
+    container_name: washroom-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: [ "CMD-SHELL", "redis-cli ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+volumes:
+  redis_data:
+  timescaledb_data:

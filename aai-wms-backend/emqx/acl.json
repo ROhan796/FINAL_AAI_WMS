@@ -1,0 +1,11 @@
+%% System subscriber rules
+{allow, {username, "system-backend-subscriber"}, subscribe, ["washroom/+/+/telemetry", "washroom/+/+/alerts", "washroom/+/+/heartbeat"]}.
+{allow, {username, "system-backend-subscriber"}, publish, ["washroom/+/+/alerts"]}.
+
+%% Generic device rules based on verified certificate CN mapped as username (matching pico-*)
+{allow, {username, {re, "^pico-.*$"}}, publish, ["washroom/+/%u/telemetry", "washroom/+/%u/heartbeat"]}.
+{allow, {username, {re, "^pico-.*$"}}, subscribe, ["washroom/+/+/alerts", "washroom/+/+/firmware"]}.
+
+%% Deny everything else
+{deny, all}.
+

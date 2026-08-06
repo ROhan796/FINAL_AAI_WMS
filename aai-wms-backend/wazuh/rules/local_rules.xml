@@ -1,0 +1,46 @@
+<!-- Custom Wazuh Detection Rules for AAI Intelligent Washroom Monitoring -->
+<group name="wms_rules,syslog,postgresql,json,">
+
+  <!-- 1. MQTT Single Authentication / mTLS Failure -->
+  <rule id="100001" level="3">
+    <match>failed mTLS handshake|MQTT authentication failure|Client certificate verification failed|Client auth failed</match>
+    <description>WMS: MQTT mTLS handshake or client authentication failure</description>
+  </rule>
+
+  <!-- 2. MQTT Frequency Escalation (Severity 12 threshold rule) -->
+  <rule id="100002" level="12">
+    <if_sid>100001</if_sid>
+    <frequency>5</frequency>
+    <timeframe>60</timeframe>
+    <same_source_ip />
+    <description>WMS: Repeated MQTT client authentication failures from same IP (Potential brute force/rogue device)</description>
+  </rule>
+
+  <!-- 3. Ingestion Rate Limit Exceeded -->
+  <rule id="100003" level="5">
+    <match>exceeded rate limit</match>
+    <description>WMS: Ingestion rate limit threshold hit for device</description>
+  </rule>
+
+  <!-- 4. DB Immutability Violation (Postgres Trigger Exception) -->
+  <rule id="100004" level="10">
+    <match>Security Policy Violation: Historical incident audit vectors cannot be altered or removed.</match>
+    <description>WMS: Write/delete attempt blocked by historical log immutability trigger</description>
+  </rule>
+
+  <!-- 5. File Integrity Monitoring (FIM) Syscheck Alert for Critical Files -->
+  <rule id="100005" level="11">
+    <if_group>syscheck</if_group>
+    <!-- Matches our custom absolute paths to flag FIM anomalies on config/certs -->
+    <match>/opt/aai-wms/emqx/acl.json|/opt/aai-wms/haproxy/haproxy.cfg|/opt/aai-wms/db_init/01-init.sql|/opt/aai-wms/certs</match>
+    <description>WMS: Critical configuration file or certificate change detected</description>
+  </rule>
+
+  <!-- 6. Certificate Expiry Warning -->
+  <rule id="100006" level="8">
+    <decoded_as>json</decoded_as>
+    <match>expiring soon|expires in less than 30 days</match>
+    <description>WMS: Certificate expiration pre-expiry warning (under 30 days remaining)</description>
+  </rule>
+
+</group>
