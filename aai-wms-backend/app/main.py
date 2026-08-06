@@ -1,9 +1,11 @@
+import os
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load .env from project root so get_secret() can find *_FILE env vars
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+# Load .env2 in production, .env otherwise
+_env_file = ".env2" if os.getenv("APP_ENV") == "production" else ".env"
+load_dotenv(Path(__file__).resolve().parent.parent / _env_file, override=True)
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
