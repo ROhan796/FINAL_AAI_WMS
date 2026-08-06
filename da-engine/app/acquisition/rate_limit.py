@@ -1,6 +1,7 @@
 import asyncio
 import time
 from loguru import logger
+from app.config.settings import settings
 
 
 class TokenBucketRateLimiter:
@@ -28,4 +29,7 @@ class TokenBucketRateLimiter:
                 self.tokens -= 1.0
 
 
-rate_limiter = TokenBucketRateLimiter(rate_per_minute=60, burst_buffer=5)
+rate_limiter = TokenBucketRateLimiter(
+    rate_per_minute=settings.RATE_LIMIT_PER_MINUTE,
+    burst_buffer=5,
+)

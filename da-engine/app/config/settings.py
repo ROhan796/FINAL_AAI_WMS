@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     NSCBI_API_KEY: str = "your_api_key_here"
     NSCBI_DEVICE_IDS: str = ""  # Comma-separated device IDs, e.g. "T1-L1-PPM-001,T2-L2-PPF-002"
     POLLING_INTERVAL_SECONDS: int = 30
+    RATE_LIMIT_PER_MINUTE: int = 60
     DA_ENGINE_HOST: str = "0.0.0.0"
     DA_ENGINE_PORT: int = 8001
     ENVIRONMENT: str = "development"
