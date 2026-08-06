@@ -11,7 +11,7 @@ class RedisClient:
 
         # Upstash (rediss://) requires TLS
         if url.startswith("rediss://"):
-            kwargs["ssl"] = ssl.create_default_context()
+            kwargs["ssl_context"] = ssl.create_default_context()
 
         self.pool = ConnectionPool.from_url(url, **kwargs)
         self.client = Redis(connection_pool=self.pool)
