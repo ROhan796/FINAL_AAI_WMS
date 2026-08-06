@@ -19,7 +19,7 @@ class PostgresManager:
             # Note: The asyncpg DSN doesn't usually use the +asyncpg scheme
             # like SQLAlchemy does, so we replace it if needed.
             dsn = settings.postgres_connection_url.replace("postgresql+asyncpg://", "postgresql://")
-            ssl_opt = "require" if "sslmode=require" in settings.postgres_connection_url else None
+            ssl_opt = True if "sslmode=require" in settings.postgres_connection_url else None
             self.pool = await asyncpg.create_pool(dsn=dsn, ssl=ssl_opt)
             logger.info("PostgreSQL connected successfully")
             await self.initialize_schema()

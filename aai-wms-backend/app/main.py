@@ -44,7 +44,7 @@ async def seed_users():
         
     logger.info("Initializing superuser connection to seed credentials...")
     superuser_url = settings.postgres_superuser_connection_url.replace("postgresql+asyncpg://", "postgresql://")
-    ssl_opt = "require" if "sslmode=require" in superuser_url else None
+    ssl_opt = True if "sslmode=require" in superuser_url else None
     
     conn = None
     try:

@@ -10,6 +10,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY --chown=appuser:appuser . /workspace
 
+# Copy .env2 if present in build context (for local/CI builds)
+# On Render, env vars are injected at runtime via the dashboard
+RUN test -f /workspace/.env2 && echo ".env2 found" || echo ".env2 not in build context — using runtime env vars"
+
 USER appuser
 
 EXPOSE 8000

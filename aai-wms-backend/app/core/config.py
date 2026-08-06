@@ -81,28 +81,34 @@ class Settings(BaseSettings):
     
     @property
     def postgres_connection_url(self) -> str:
-        # Connect using aai_app_worker_password first, fallback to postgres_password
-        db_pass = get_secret("aai_app_worker_password") or get_secret("postgres_password")
-        if db_pass:
-            parsed = urllib.parse.urlparse(self.POSTGRES_URL)
-            netloc = parsed.netloc
-            if "@" in netloc:
-                user_pass, host_port = netloc.split("@", 1)
-                user = user_pass.split(":", 1)[0]
+        parsed = urllib.parse.urlparse(self.POSTGRES_URL)
+        netloc = parsed.netloc
+        if "@" in netloc:
+            user_pass, host_port = netloc.split("@", 1)
+            user = user_pass.split(":", 1)[0]
+            if ":" in user_pass:
+                _, existing_pass = user_pass.split(":", 1)
+                if existing_pass:
+                    return self.POSTGRES_URL
+            db_pass = get_secret("aai_app_worker_password") or get_secret("postgres_password")
+            if db_pass:
                 new_netloc = f"{user}:{db_pass}@{host_port}"
                 return parsed._replace(netloc=new_netloc).geturl()
         return self.POSTGRES_URL
 
     @property
     def postgres_superuser_connection_url(self) -> str:
-        # Connect using postgres_password for superuser operations
-        db_pass = get_secret("postgres_password")
-        if db_pass:
-            parsed = urllib.parse.urlparse(self.POSTGRES_SUPERUSER_URL)
-            netloc = parsed.netloc
-            if "@" in netloc:
-                user_pass, host_port = netloc.split("@", 1)
-                user = user_pass.split(":", 1)[0]
+        parsed = urllib.parse.urlparse(self.POSTGRES_SUPERUSER_URL)
+        netloc = parsed.netloc
+        if "@" in netloc:
+            user_pass, host_port = netloc.split("@", 1)
+            user = user_pass.split(":", 1)[0]
+            if ":" in user_pass:
+                _, existing_pass = user_pass.split(":", 1)
+                if existing_pass:
+                    return self.POSTGRES_SUPERUSER_URL
+            db_pass = get_secret("postgres_password")
+            if db_pass:
                 new_netloc = f"{user}:{db_pass}@{host_port}"
                 return parsed._replace(netloc=new_netloc).geturl()
         return self.POSTGRES_SUPERUSER_URL

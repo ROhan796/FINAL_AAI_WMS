@@ -1,0 +1,17 @@
+.git
+.gitignore
+__pycache__
+*.pyc
+*.pyo
+venv/
+.venv/
+.vscode/
+.idea/
+*.log
+logs/
+.env
+.env.local
+secrets/
+certs/
+dist/
+.docker/
