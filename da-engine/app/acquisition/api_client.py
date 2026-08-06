@@ -7,8 +7,9 @@ from datetime import datetime, timezone
 
 from app.config.settings import settings
 from app.acquisition.authentication import authenticator
-from app.acquisition.retry import nscbi_retry_decorator
+from app.acquisition.retry import nscbi_retry, circuit_breaker
 from app.acquisition.rate_limit import rate_limiter
+
 
 class AcquisitionClient:
     def __init__(self):
@@ -20,36 +21,87 @@ class AcquisitionClient:
 
     async def get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            # Create AsyncClient with connection pooling (limits configuration)
-            limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
-            self._client = httpx.AsyncClient(limits=limits, timeout=15.0)
+            limits = httpx.Limits(max_keepalive_connections=3, max_connections=5)
+            self._client = httpx.AsyncClient(limits=limits, timeout=20.0)
         return self._client
 
     async def close(self):
         if self._client is not None and not self._client.is_closed:
             await self._client.aclose()
 
-    @nscbi_retry_decorator
-    async def _make_request(self, method: str, endpoint: str, params: Optional[Dict[str, Any]] = None) -> httpx.Response:
+    @nscbi_retry
+    async def _make_request(
+        self,
+        method: str,
+        endpoint: str,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> httpx.Response:
+        if not circuit_breaker.allow_request():
+            raise httpx.ConnectError("Circuit breaker is OPEN — skipping request")
+
         await rate_limiter.acquire()
         client = await self.get_client()
         url = f"{self.base_url.rstrip('/')}/{endpoint.lstrip('/')}"
-        
         headers = authenticator.inject_auth_header({})
-        
-        logger.debug(f"Making {method} request to {url}")
-        response = await client.request(method, url, headers=headers, params=params)
-        response.raise_for_status()
-        return response
 
-    async def _list_files_for_device(self, did: str, from_date: Optional[str] = None, to_date: Optional[str] = None) -> List[str]:
-        """List all files for a single device, handling pagination."""
+        try:
+            response = await client.request(
+                method, url, headers=headers, params=params
+            )
+
+            if response.status_code == 401:
+                logger.error(f"Auth failed (401) for {endpoint} — check NSCBI_API_KEY")
+                circuit_breaker.record_failure()
+                response.raise_for_status()
+
+            if response.status_code == 403:
+                logger.error(f"Forbidden (403) for {endpoint} — API key expired or limit exceeded")
+                circuit_breaker.record_failure()
+                response.raise_for_status()
+
+            if response.status_code == 404:
+                logger.warning(f"Not found (404) for {endpoint}")
+                return response
+
+            if response.status_code == 422:
+                logger.error(f"Validation error (422) for {endpoint}: {response.text[:200]}")
+                circuit_breaker.record_failure()
+                response.raise_for_status()
+
+            if response.status_code == 429:
+                retry_after = response.headers.get("Retry-After", "unknown")
+                logger.warning(f"Rate limited (429) — Retry-After: {retry_after}")
+                circuit_breaker.record_failure()
+                response.raise_for_status()
+
+            if response.status_code >= 500:
+                logger.warning(f"Server error ({response.status_code}) for {endpoint}")
+                circuit_breaker.record_failure()
+                response.raise_for_status()
+
+            circuit_breaker.record_success()
+            return response
+
+        except httpx.RequestError as e:
+            circuit_breaker.record_failure()
+            raise
+
+    async def _list_files_for_device(
+        self,
+        did: str,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+    ) -> List[str]:
         filenames: List[str] = []
         page_limit = 100
         offset = 0
 
         while True:
-            params: Dict[str, Any] = {"limit": page_limit, "offset": offset, "device_id": did}
+            params: Dict[str, Any] = {
+                "limit": page_limit,
+                "offset": offset,
+                "device_id": did,
+            }
             if from_date:
                 params["from_date"] = from_date
             if to_date:
@@ -57,6 +109,11 @@ class AcquisitionClient:
 
             try:
                 response = await self._make_request("GET", "/files", params=params)
+
+                if response.status_code == 404:
+                    logger.debug(f"No files for device {did}")
+                    break
+
                 data = response.json()
 
                 if isinstance(data, dict) and "data" in data:
@@ -86,12 +143,13 @@ class AcquisitionClient:
 
         return filenames
 
-    async def list_files(self, device_id: Optional[str] = None, from_date: Optional[str] = None, to_date: Optional[str] = None, limit: Optional[int] = None) -> List[str]:
-        """
-        GET /api/files -> returns ALL filenames by paginating through results.
-        Polls ALL device IDs in parallel using asyncio.gather for faster acquisition.
-        API response format: {"success": true, "data": [...], "pagination": {...}}
-        """
+    async def list_files(
+        self,
+        device_id: Optional[str] = None,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> List[str]:
         if self.base_url.upper() == "MOCK":
             return ["mock_batch_1.json", "mock_batch_2.json"]
 
@@ -100,23 +158,15 @@ class AcquisitionClient:
             logger.warning("No device IDs configured in NSCBI_DEVICE_IDS")
             return []
 
-        # Parallel fetch across all devices (max 10 concurrent to respect connection pool)
-        semaphore = asyncio.Semaphore(10)
-
-        async def _bounded_fetch(did: str) -> List[str]:
-            async with semaphore:
-                return await self._list_files_for_device(did, from_date, to_date)
-
-        results = await asyncio.gather(*[_bounded_fetch(did) for did in device_ids], return_exceptions=True)
-
         all_filenames: List[str] = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                logger.error(f"Device {device_ids[i]} fetch failed: {result}")
-            elif isinstance(result, list):
-                all_filenames.extend(result)
 
-        # Deduplicate while preserving order
+        for did in device_ids:
+            if not circuit_breaker.allow_request():
+                logger.warning("Circuit breaker open — pausing device listing")
+                break
+            files = await self._list_files_for_device(did, from_date, to_date)
+            all_filenames.extend(files)
+
         seen = set()
         unique: List[str] = []
         for f in all_filenames:
@@ -124,22 +174,19 @@ class AcquisitionClient:
                 seen.add(f)
                 unique.append(f)
 
-        logger.info(f"Listed {len(unique)} total files from API across {len(device_ids)} devices (parallel).")
+        logger.info(
+            f"Listed {len(unique)} unique files from {len(device_ids)} devices "
+            f"(circuit: {circuit_breaker.state})"
+        )
         return unique
 
     async def download_file(self, filename: str) -> List[Dict[str, Any]]:
-        """
-        GET /api/files/{filename} -> returns file contents.
-        API may return raw JSON content or wrapped in {"success": true, "data": ...}
-        """
         if self.base_url.upper() == "MOCK" or filename.startswith("mock_"):
             return self._generate_mock_telemetry(filename)
 
-        await asyncio.sleep(1.5)
         try:
             response = await self._make_request("GET", f"/files/{filename}")
             data = response.json()
-            # Handle wrapped response format
             if isinstance(data, dict):
                 if "data" in data:
                     content = data["data"]
@@ -147,7 +194,6 @@ class AcquisitionClient:
                         return content
                     elif isinstance(content, dict):
                         return [content]
-                # Single object response
                 return [data]
             elif isinstance(data, list):
                 return data
@@ -157,38 +203,46 @@ class AcquisitionClient:
             raise
 
     def _generate_mock_telemetry(self, filename: str) -> List[Dict[str, Any]]:
-        """
-        Generates realistic raw telemetry matching NSCBI schema.
-        """
         terminals = ["T1", "T2", "CGO"]
         unit_types = ["PPM", "PPF", "PPD", "STF"]
         payloads = []
-        
-        # Consistent seed based on filename
+
         random.seed(hash(filename))
-        
         for i in range(1, 11):
             terminal = terminals[i % len(terminals)]
             level = (i % 3) + 1
             ut = unit_types[i % len(unit_types)]
             device_id = f"{terminal}-L{level}-{ut}-00{i}"
-            
-            payloads.append({
-                "deviceId": device_id,
-                "temperature": round(random.uniform(22.0, 29.0), 1),
-                "humidity": round(random.uniform(40.0, 75.0), 1),
-                "pressure": 1013.25,
-                "battery": round(random.uniform(3.2, 4.2), 2),
-                "rssi": round(random.uniform(-85.0, -45.0), 1),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "ammonia_ppm": round(random.uniform(2.0, 55.0), 1) if random.random() > 0.1 else None,
-                "soap_pct": round(random.uniform(10.0, 100.0), 1) if random.random() > 0.1 else None,
-                "paper_pct": round(random.uniform(10.0, 100.0), 1) if random.random() > 0.1 else None,
-                "sanitizer_pct": round(random.uniform(10.0, 100.0), 1) if random.random() > 0.1 else None,
-                "occupancy_count": random.randint(0, 12) if random.random() > 0.1 else None,
-                "cleanliness_score": round(random.uniform(50.0, 100.0), 1) if random.random() > 0.1 else None
-            })
-            
+            payloads.append(
+                {
+                    "deviceId": device_id,
+                    "temperature": round(random.uniform(22.0, 29.0), 1),
+                    "humidity": round(random.uniform(40.0, 75.0), 1),
+                    "pressure": 1013.25,
+                    "battery": round(random.uniform(3.2, 4.2), 2),
+                    "rssi": round(random.uniform(-85.0, -45.0), 1),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "ammonia_ppm": round(random.uniform(2.0, 55.0), 1)
+                    if random.random() > 0.1
+                    else None,
+                    "soap_pct": round(random.uniform(10.0, 100.0), 1)
+                    if random.random() > 0.1
+                    else None,
+                    "paper_pct": round(random.uniform(10.0, 100.0), 1)
+                    if random.random() > 0.1
+                    else None,
+                    "sanitizer_pct": round(random.uniform(10.0, 100.0), 1)
+                    if random.random() > 0.1
+                    else None,
+                    "occupancy_count": random.randint(0, 12)
+                    if random.random() > 0.1
+                    else None,
+                    "cleanliness_score": round(random.uniform(50.0, 100.0), 1)
+                    if random.random() > 0.1
+                    else None,
+                }
+            )
         return payloads
+
 
 api_client = AcquisitionClient()

@@ -1,21 +1,86 @@
+import time
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception,
+    RetryCallState,
+)
 from loguru import logger
 
-def is_retryable_exception(exception: BaseException) -> bool:
+
+def is_retryable(exception: BaseException) -> bool:
     if isinstance(exception, httpx.RequestError):
         return True
     if isinstance(exception, httpx.HTTPStatusError):
-        status_code = exception.response.status_code
-        # Retry on rate limiting (429) or server errors (5xx)
-        if status_code == 429 or status_code >= 500:
-            logger.warning(f"Retryable HTTP error encountered: {status_code}. Retrying...")
-            return True
+        code = exception.response.status_code
+        return code == 429 or code >= 500
     return False
 
-nscbi_retry_decorator = retry(
-    retry=retry_if_exception(is_retryable_exception),
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1.5, min=2, max=10),
-    reraise=True
+
+def _get_retry_after(exception: BaseException) -> float | None:
+    if isinstance(exception, httpx.HTTPStatusError):
+        header = exception.response.headers.get("Retry-After")
+        if header:
+            try:
+                return max(float(header), 1.0)
+            except (ValueError, TypeError):
+                pass
+    return None
+
+
+def _wait_strategy(retry_state: RetryCallState) -> float:
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    if exc:
+        ra = _get_retry_after(exc)
+        if ra is not None:
+            logger.info(f"Retry-After header: waiting {ra:.1f}s")
+            return ra
+    return wait_exponential(multiplier=2, min=3, max=30)(retry_state)
+
+
+nscbi_retry = retry(
+    retry=retry_if_exception(is_retryable),
+    stop=stop_after_attempt(5),
+    wait=_wait_strategy,
+    reraise=True,
 )
+
+
+class CircuitBreaker:
+    def __init__(self, failure_threshold: int = 5, recovery_timeout: float = 60.0):
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self.failure_count = 0
+        self.last_failure_time: float = 0.0
+        self.state = "closed"
+
+    def record_success(self):
+        self.failure_count = 0
+        self.state = "closed"
+
+    def record_failure(self):
+        self.failure_count += 1
+        self.last_failure_time = time.monotonic()
+        if self.failure_count >= self.failure_threshold:
+            self.state = "open"
+            logger.warning(
+                f"Circuit breaker OPEN after {self.failure_count} failures. "
+                f"Recovery in {self.recovery_timeout}s."
+            )
+
+    def allow_request(self) -> bool:
+        if self.state == "closed":
+            return True
+        if self.state == "open":
+            elapsed = time.monotonic() - self.last_failure_time
+            if elapsed >= self.recovery_timeout:
+                self.state = "half-open"
+                logger.info("Circuit breaker: half-open, allowing probe request")
+                return True
+            return False
+        return True
+
+
+circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=60.0)
