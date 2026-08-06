@@ -142,7 +142,7 @@ class Settings(BaseSettings):
         return self.REDIS_URL
 
     class Config:
-        env_file = ".env"
+        env_file = ".env2" if os.getenv("APP_ENV") == "production" else ".env"
         extra = "ignore"
 
 settings = Settings()
