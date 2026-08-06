@@ -5,7 +5,7 @@ from app.config.settings import settings
 
 def serialize(record):
     subset = {
-        "timestamp": record["date"].isoformat(),
+        "timestamp": record["time"].isoformat(),
         "level": record["level"].name,
         "message": record["message"],
         "module": record["module"],
