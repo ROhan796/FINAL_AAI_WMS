@@ -8,7 +8,7 @@ import PageHeader from '@/components/ui/PageHeader'
 import DataCard from '@/components/ui/DataCard'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import EmptyState from '@/components/ui/EmptyState'
-import { ArrowLeft, Clock, ShieldAlert, CheckCircle, Play, AlertCircle } from 'lucide-react'
+import { ArrowLeft, Clock, ShieldAlert, CheckCircle, Play, AlertCircle, RefreshCw } from 'lucide-react'
 import { cn, severityBadgeClass, statusBadgeClass, timeElapsed } from '@/lib/utils'
 
 interface TimelineItem {
