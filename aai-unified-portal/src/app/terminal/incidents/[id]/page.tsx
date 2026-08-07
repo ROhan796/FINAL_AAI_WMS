@@ -49,6 +49,8 @@ export default function TerminalIncidentDetailPage() {
   const [loading, setLoading] = useState(true)
   const [incident, setIncident] = useState<IncidentData | null>(null)
   const [timeline, setTimeline] = useState<TimelineItem[]>([])
+  const [actionLoading, setActionLoading] = useState(false)
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null)
 
   useEffect(() => {
     async function loadIncident() {
@@ -96,22 +98,31 @@ export default function TerminalIncidentDetailPage() {
   }, [rtIncidents, incident])
 
   const handleUpdateStatus = async (newStatus: 'IN_PROGRESS' | 'RESOLVED') => {
-    if (!incident) return
+    if (!incident || actionLoading) return
+    setActionLoading(true)
+    setActionSuccess(null)
     try {
       const action = newStatus === 'RESOLVED' ? 'resolve' : 'acknowledge'
-      await fetch(`/api/wms/incidents/${incident.id}/${action}`, { method: 'POST' })
-    } catch {}
-    const updated = { ...incident, status: newStatus }
-    setIncident(updated)
-    setTimeline(prev => [
-      {
-        title: newStatus === 'RESOLVED' ? 'Incident Resolved' : 'Work Started',
-        desc: newStatus === 'RESOLVED' ? 'Operational state restored to normal.' : 'Technician is actively addressing the issue.',
-        time: 'Just Now',
-        status: newStatus === 'RESOLVED' ? 'resolved' : 'in-progress'
-      },
-      ...prev
-    ])
+      const res = await fetch(`/api/wms/incidents/${incident.id}/${action}`, { method: 'POST' })
+      if (res.ok) {
+        const updated = { ...incident, status: newStatus }
+        setIncident(updated)
+        setTimeline(prev => [
+          {
+            title: newStatus === 'RESOLVED' ? 'Incident Resolved' : 'Work Started',
+            desc: newStatus === 'RESOLVED' ? 'Operational state restored to normal.' : 'Technician is actively addressing the issue.',
+            time: 'Just Now',
+            status: newStatus === 'RESOLVED' ? 'resolved' : 'in-progress'
+          },
+          ...prev
+        ])
+        setActionSuccess(newStatus === 'RESOLVED' ? 'Incident resolved successfully' : 'Incident acknowledged successfully')
+        setTimeout(() => setActionSuccess(null), 4000)
+      }
+    } catch {
+    } finally {
+      setActionLoading(false)
+    }
   }
 
   if (loading) {
@@ -192,21 +203,28 @@ export default function TerminalIncidentDetailPage() {
           {/* Card 3: Actions */}
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
             <h3 className="text-lg font-semibold text-slate-800">Incident Resolution</h3>
+            {actionSuccess && (
+              <div className="bg-green-50 border border-green-200 p-3 rounded-xl text-green-700 text-xs font-semibold flex items-center gap-2">
+                <CheckCircle size={16} /> {actionSuccess}
+              </div>
+            )}
             <div className="space-y-2">
               {incident.status === 'OPEN' && (
                 <button
                   onClick={() => handleUpdateStatus('IN_PROGRESS')}
-                  className="w-full bg-blue-650 hover:bg-blue-700 text-white font-bold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 cursor-pointer border-none shadow-sm transition-all"
+                  disabled={actionLoading}
+                  className="w-full bg-blue-650 hover:bg-blue-700 disabled:opacity-60 text-white font-bold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 cursor-pointer border-none shadow-sm transition-all"
                 >
-                  <Play size={16} /> Acknowledge & Start
+                  {actionLoading ? <RefreshCw size={16} className="animate-spin" /> : <Play size={16} />} Acknowledge & Start
                 </button>
               )}
               {incident.status !== 'RESOLVED' && (
                 <button
                   onClick={() => handleUpdateStatus('RESOLVED')}
-                  className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 cursor-pointer border-none shadow-sm transition-all"
+                  disabled={actionLoading}
+                  className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-bold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 cursor-pointer border-none shadow-sm transition-all"
                 >
-                  <CheckCircle size={16} /> Resolve Incident
+                  {actionLoading ? <RefreshCw size={16} className="animate-spin" /> : <CheckCircle size={16} />} Resolve Incident
                 </button>
               )}
               {incident.status === 'RESOLVED' && (

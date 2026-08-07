@@ -78,6 +78,13 @@ class Settings(BaseSettings):
         "L2_TestRoom": "T1",
         "L2_WashroomT2": "T2",
     }
+
+    # Prefix-to-terminal mapping for dynamic washroom ID resolution
+    TERMINAL_PREFIXES: dict[str, str] = {
+        "T1": "T1",
+        "T2": "T2",
+        "T3": "T3",
+    }
     
     @property
     def postgres_connection_url(self) -> str:

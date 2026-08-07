@@ -7,7 +7,7 @@ import DataCard from '@/components/ui/DataCard'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import EmptyState from '@/components/ui/EmptyState'
 import { statusColor, cn } from '@/lib/utils'
-import { AlertTriangle, Clock, ArrowRight, ShieldAlert, CheckCircle2, Search, Plus } from 'lucide-react'
+import { AlertTriangle, Clock, ArrowRight, ShieldAlert, CheckCircle2, Search, Plus, CheckCheck, X } from 'lucide-react'
 import { useRealtime } from '@/hooks/useRealtime'
 
 interface DAIncident {
@@ -38,8 +38,16 @@ export default function ActiveIncidentsPage() {
   const [loading, setLoading] = useState(true)
   const [incidents, setIncidents] = useState<IncidentRow[]>([])
   const [searchTerm, setSearchTerm] = useState('')
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { incidents: realtimeIncidents } = useRealtime()
+
+  const showSuccess = useCallback((msg: string) => {
+    setActionSuccess(msg)
+    if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current)
+    successTimeoutRef.current = setTimeout(() => setActionSuccess(null), 4000)
+  }, [])
 
   const fetchIncidents = useCallback(async () => {
     try {
@@ -92,12 +100,15 @@ export default function ActiveIncidentsPage() {
 
   const handleAcknowledge = async (id: string) => {
     try {
-      await fetch(`/api/wms/incidents/${id}/acknowledge`, { method: 'POST' })
-      setIncidents(prev =>
-        prev.map((inc) =>
-          inc.id === id ? { ...inc, status: 'IN_PROGRESS', assignedTo: 'You (Operator)' } : inc
+      const res = await fetch(`/api/wms/incidents/${id}/acknowledge`, { method: 'POST' })
+      if (res.ok) {
+        setIncidents(prev =>
+          prev.map((inc) =>
+            inc.id === id ? { ...inc, status: 'IN_PROGRESS', assignedTo: 'You (Operator)' } : inc
+          )
         )
-      )
+        showSuccess('Incident acknowledged successfully')
+      }
     } catch (e) {
       console.error('Failed to acknowledge incident:', e)
     }
@@ -105,12 +116,15 @@ export default function ActiveIncidentsPage() {
 
   const handleResolve = async (id: string) => {
     try {
-      await fetch(`/api/wms/incidents/${id}/resolve`, { method: 'POST' })
-      setIncidents(prev =>
-        prev.map((inc) =>
-          inc.id === id ? { ...inc, status: 'RESOLVED' } : inc
+      const res = await fetch(`/api/wms/incidents/${id}/resolve`, { method: 'POST' })
+      if (res.ok) {
+        setIncidents(prev =>
+          prev.map((inc) =>
+            inc.id === id ? { ...inc, status: 'RESOLVED' } : inc
+          )
         )
-      )
+        showSuccess('Incident resolved successfully')
+      }
     } catch (e) {
       console.error('Failed to resolve incident:', e)
     }
@@ -158,6 +172,16 @@ export default function ActiveIncidentsPage() {
           </div>
         }
       />
+
+      {actionSuccess && (
+        <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-center gap-2">
+          <CheckCheck size={16} className="text-green-600 shrink-0" />
+          <p className="text-green-700 text-sm font-medium">{actionSuccess}</p>
+          <button onClick={() => setActionSuccess(null)} className="ml-auto text-green-400 hover:text-green-600">
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-white border border-slate-200 p-5 rounded-2xl flex items-center justify-between shadow-sm hover:shadow-md transition-shadow">

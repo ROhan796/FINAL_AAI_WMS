@@ -73,11 +73,13 @@ export default function AuditLog() {
   const [activeType, setActiveType] = useState('All Activities');
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [kpi, setKpi] = useState({ total: 0, security: 0, activeControllers: 36 });
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { incidents: realtimeIncidents } = useRealtime();
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
     try {
       // Fetch from multiple sources for comprehensive audit logs
       const [daRes, auditRes] = await Promise.allSettled([
@@ -146,6 +148,7 @@ export default function AuditLog() {
     } catch {
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -198,10 +201,11 @@ export default function AuditLog() {
           <p className="text-xs text-slate-500">Terminal System - Real-time sensor event history</p>
         </div>
         <button
-          onClick={fetchData}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-xl text-xs font-bold flex items-center gap-1 hover:shadow-md transition-all active:scale-95 cursor-pointer border-none shadow-sm"
+          onClick={() => fetchData(true)}
+          disabled={refreshing}
+          className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-6 py-2 rounded-xl text-xs font-bold flex items-center gap-1 hover:shadow-md transition-all active:scale-95 cursor-pointer border-none shadow-sm"
         >
-          <span className="material-symbols-outlined text-[18px]">refresh</span> Refresh
+          <span className={`material-symbols-outlined text-[18px] ${refreshing ? 'animate-spin' : ''}`}>refresh</span> {refreshing ? 'Refreshing...' : 'Refresh'}
         </button>
       </div>
 

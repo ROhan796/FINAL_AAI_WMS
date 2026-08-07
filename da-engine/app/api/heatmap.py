@@ -11,7 +11,7 @@ async def get_floor_washrooms(terminal_id: str, level: str):
     """
     Returns array of washrooms with details and WHI scores on a specific floor.
     """
-    all_telemetries = cache_store.get_all_telemetry()
+    all_telemetries = await cache_store.get_all_telemetry()
     
     # Filter telemetries by terminal_id and floor_level
     filtered = [
@@ -21,7 +21,7 @@ async def get_floor_washrooms(terminal_id: str, level: str):
     
     if not filtered:
         # Check if terminal details are even present in airport summary
-        summary = cache_store.get_airport_summary()
+        summary = await cache_store.get_airport_summary()
         if not summary:
             return []
         

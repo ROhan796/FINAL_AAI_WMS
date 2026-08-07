@@ -4,9 +4,11 @@ from typing import Optional, List
 class Settings(BaseSettings):
     NSCBI_API_BASE_URL: str = "https://api.nscbiairport.com/api"
     NSCBI_API_KEY: str = "your_api_key_here"
-    NSCBI_DEVICE_IDS: str = ""  # Comma-separated device IDs, e.g. "T1-L1-PPM-001,T2-L2-PPF-002"
-    POLLING_INTERVAL_SECONDS: int = 30
-    RATE_LIMIT_PER_MINUTE: int = 60
+    NSCBI_DEVICE_IDS: str = ""  # Comma-separated device IDs
+    POLLING_INTERVAL_SECONDS: int = 60  # 60 seconds - reduced from 30 to avoid throttling
+    RATE_LIMIT_PER_MINUTE: int = 120  # Increased from 60 to handle batch downloads
+    MAX_FILES_PER_POLL: int = 50  # Cap per poll cycle to avoid overwhelming the API
+    MAX_CONCURRENT_DOWNLOADS: int = 3  # Max parallel file downloads
     DA_ENGINE_HOST: str = "0.0.0.0"
     DA_ENGINE_PORT: int = 8001
     ENVIRONMENT: str = "development"

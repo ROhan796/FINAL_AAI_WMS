@@ -25,7 +25,7 @@ async def _telemetry_generator(request: Request):
                 break
 
             try:
-                all_telemetry = cache_store.get_all_telemetry()
+                all_telemetry = await cache_store.get_all_telemetry()
                 current_count = len(all_telemetry)
 
                 # Only send if data changed
@@ -65,7 +65,7 @@ async def _telemetry_generator(request: Request):
                     yield f"data: {inc_message}\n\n"
 
                 # Also send summary
-                summary = cache_store.get_airport_summary()
+                summary = await cache_store.get_airport_summary()
                 if summary:
                     summary_dict = {
                         "avg_whi": getattr(summary, 'avg_whi', 0.0),

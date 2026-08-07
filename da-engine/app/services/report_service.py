@@ -2,11 +2,11 @@ from typing import Dict, Any
 from app.storage.cache import cache_store
 
 class ReportService:
-    def generate_summary_report(self) -> Dict[str, Any]:
+    async def generate_summary_report(self) -> Dict[str, Any]:
         """
         Assembles a structured summary report payload.
         """
-        summary = cache_store.get_airport_summary()
+        summary = await cache_store.get_airport_summary()
         if not summary:
             return {"status": "NO_DATA", "message": "No telemetry processed yet."}
             

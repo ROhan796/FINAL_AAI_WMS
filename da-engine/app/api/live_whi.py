@@ -23,7 +23,7 @@ async def get_live_whi() -> Dict[str, Any]:
     all_device_ids = settings.device_id_list
 
     for device_id in all_device_ids:
-        telemetry = cache_store.get_telemetry(device_id)
+        telemetry = await cache_store.get_telemetry(device_id)
         if telemetry:
             parsed = parse_device_id(device_id)
             if parsed:

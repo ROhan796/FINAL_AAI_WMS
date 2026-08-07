@@ -12,12 +12,12 @@ export interface RealtimeTelemetry {
   whi_score: number
   ammonia_ppm: number
   occupancy_count: number
-  soap_pct: number
-  paper_pct: number
-  sanitizer_pct: number
   temperature_celsius: number
   humidity_pct: number
   battery_pct: number
+  signal_rssi: number
+  peak_nh3_ppm: number
+  throughput: number
   last_updated: string
 }
 
@@ -187,6 +187,12 @@ class WebSocketManager {
         console.log('[Realtime] DA Engine WebSocket connected')
         this.emit({ connected: true })
         this.startPing()
+        // Request full telemetry data after initial connection
+        setTimeout(() => {
+          if (this.daWs?.readyState === WebSocket.OPEN) {
+            this.daWs.send('request_full')
+          }
+        }, 1000)
       }
 
       this.daWs.onmessage = (event) => {
@@ -326,12 +332,12 @@ class WebSocketManager {
       whi_score: data.raw_whi || 0,
       ammonia_ppm: data.avg_nh3_ppm || 0,
       occupancy_count: data.occupancy_inside || 0,
-      soap_pct: 0,
-      paper_pct: 0,
-      sanitizer_pct: 0,
       temperature_celsius: data.avg_temperature_c || 0,
       humidity_pct: data.avg_humidity_percent || 0,
       battery_pct: 100,
+      signal_rssi: 0,
+      peak_nh3_ppm: data.peak_nh3_ppm || 0,
+      throughput: data.throughput || 0,
       last_updated: data.timestamp || new Date().toISOString(),
     }
 
@@ -371,18 +377,18 @@ class WebSocketManager {
     const wmsOnly = current.filter(c => !uniqueDaDevices.some(d => d.device_id === c.device_id))
     const merged = uniqueDaDevices.map(d => ({
       device_id: d.device_id,
-      terminal_id: d.terminal || '',
-      floor_level: d.level || '',
-      whi_score: d.whi || 0,
-      ammonia_ppm: d.latest_sensors?.nh3 || 0,
-      occupancy_count: d.latest_sensors?.occupancy || 0,
-      soap_pct: 0,
-      paper_pct: 0,
-      sanitizer_pct: 0,
-      temperature_celsius: d.latest_sensors?.temperature || 0,
-      humidity_pct: d.latest_sensors?.humidity || 0,
-      battery_pct: 100,
-      last_updated: new Date().toISOString(),
+      terminal_id: d.terminal || d.terminal_id || '',
+      floor_level: d.level || d.floor_level || '',
+      whi_score: d.whi || d.whi_score || 0,
+      ammonia_ppm: d.ammonia_ppm || d.latest_sensors?.nh3 || 0,
+      occupancy_count: d.occupancy || d.occupancy_count || d.latest_sensors?.occupancy || 0,
+      temperature_celsius: d.temperature_celsius || d.latest_sensors?.temperature || 0,
+      humidity_pct: d.humidity_pct || d.latest_sensors?.humidity || 0,
+      battery_pct: d.battery_pct || 100,
+      signal_rssi: d.signal_rssi || 0,
+      peak_nh3_ppm: d.peak_nh3_ppm || 0,
+      throughput: d.throughput || 0,
+      last_updated: d.last_updated || new Date().toISOString(),
     }))
     this.emit({ telemetry: [...merged, ...wmsOnly] })
   }

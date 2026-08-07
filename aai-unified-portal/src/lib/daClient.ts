@@ -17,9 +17,9 @@ export interface WashroomSummary {
   last_updated: string;  // ISO-8601
   occupancy_count?: number;
   ammonia_ppm?: number;
-  soap_pct?: number;
-  paper_pct?: number;
-  sanitizer_pct?: number;
+  temperature_celsius?: number;
+  humidity_pct?: number;
+  battery_pct?: number;
 }
 
 export interface FloorSummary {

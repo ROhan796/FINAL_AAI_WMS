@@ -4,7 +4,7 @@
 
 1. [Overview](#1-overview)
 2. [Deployment Targets](#2-deployment-targets)
-3. [Oracle Cloud Free Tier VM Setup](#3-oracle-cloud-free-tier-vm-setup)
+3. [Hostinger VPS Setup](#3-hostinger-vps-setup)
 4. [WMS Backend Code Changes](#4-wms-backend-code-changes)
 5. [DA Engine Code Changes](#5-da-engine-code-changes)
 6. [Portal Code Changes](#6-portal-code-changes)
@@ -41,7 +41,7 @@ The codebase currently runs entirely in local Docker with internal networking (D
 
 | Service | Platform | URL Pattern | Cost |
 |---------|----------|-------------|------|
-| HAProxy + Keepalived | Oracle Cloud Free Tier VM | `YOUR_VM_IP:8883`, `YOUR_VM_IP:443` | **$0 forever** |
+| HAProxy | Hostinger VPS | `YOUR_VPS_IP:8883`, `YOUR_VPS_IP:443` | **~$4-6/mo** |
 | WMS Backend | Render | `https://your-wms-backend.onrender.com` | $0 (free tier) |
 | DA Engine | Render | `https://your-da-engine.onrender.com` | $0 (free tier) |
 | Next.js Portal | Vercel | `https://your-app.vercel.app` | $0 (free tier) |
@@ -49,15 +49,31 @@ The codebase currently runs entirely in local Docker with internal networking (D
 | Redis | Upstash | `ready-monkey-212683.upstash.io` | $0 (free tier) |
 | MQTT | EMQX Cloud | `ke1040ef.ala.us-east-1.emqxsl.com` | Already configured |
 
-**Total Monthly Cost: $0** (Everything is free tier or already configured)
+**Total Monthly Cost: ~$4-6** (Only Hostinger VPS)
 
 ---
 
-## 3. Oracle Cloud Free Tier VM Setup
+## 3. Hostinger VPS Setup
 
-Oracle Cloud offers **Always Free** resources that never expire:
-- 4 ARM OCPUs (24 GHz total) + 24GB RAM
-- 200GB block storage
+Hostinger VPS runs HAProxy as a Docker container on a single Ubuntu VM. You have full root access and manage everything directly.
+
+### Why Hostinger VPS?
+- **Full root access** — complete control over the server
+- **Docker support** — run HAProxy in a container
+- **Let's Encrypt** — free SSL certificates via certbot
+- **Simple deployment** — `docker-compose up -d`
+- **No vendor lock-in** — standard Ubuntu, standard Docker
+
+### Recommended Plan
+- **KVM 1**: 1 vCPU, 4GB RAM, ~$4/mo — sufficient for HAProxy
+- **KVM 2**: 2 vCPU, 4GB RAM, ~$6/mo — if you want headroom
+
+### Setup
+See `docs/setup-hostinger-haproxy.md` for full setup instructions.
+
+### Files
+- `aai-wms-backend/docker-compose.cloud.yml` — Docker Compose for HAProxy
+- `aai-wms-backend/haproxy/haproxy-cloud.cfg` — HAProxy config pointing to cloud backends
 - 10GB object storage
 - 2 AMD instances (1/8 OPU each, 1GB RAM)
 

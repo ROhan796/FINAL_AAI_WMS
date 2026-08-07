@@ -18,7 +18,7 @@ async def get_dashboard_summary() -> Dict[str, Any]:
     terminal_data = {"T1": [], "T2": [], "T3": []}
 
     for device_id in all_device_ids:
-        telemetry = cache_store.get_telemetry(device_id)
+        telemetry = await cache_store.get_telemetry(device_id)
         if telemetry:
             parsed = parse_device_id(device_id)
             if parsed:

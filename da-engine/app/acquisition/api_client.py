@@ -14,6 +14,7 @@ from app.acquisition.rate_limit import rate_limiter
 class AcquisitionClient:
     def __init__(self):
         self._client: Optional[httpx.AsyncClient] = None
+        self._last_429_time: float = 0.0
 
     @property
     def base_url(self) -> str:
@@ -38,6 +39,15 @@ class AcquisitionClient:
     ) -> httpx.Response:
         if not circuit_breaker.allow_request():
             raise httpx.ConnectError("Circuit breaker is OPEN — skipping request")
+
+        # Wait if we were recently rate limited
+        import time
+        if self._last_429_time > 0:
+            elapsed = time.monotonic() - self._last_429_time
+            if elapsed < 10:
+                wait_time = 10 - elapsed + random.uniform(0.5, 2.0)
+                logger.debug(f"Rate limit cooldown: waiting {wait_time:.1f}s")
+                await asyncio.sleep(wait_time)
 
         await rate_limiter.acquire()
         client = await self.get_client()
@@ -69,8 +79,10 @@ class AcquisitionClient:
                 response.raise_for_status()
 
             if response.status_code == 429:
+                import time
+                self._last_429_time = time.monotonic()
                 retry_after = response.headers.get("Retry-After", "unknown")
-                logger.warning(f"Rate limited (429) — Retry-After: {retry_after}")
+                logger.warning(f"Rate limited (429) — Retry-After: {retry_after}, cooldown set")
                 circuit_breaker.record_failure()
                 response.raise_for_status()
 
@@ -132,6 +144,8 @@ class AcquisitionClient:
                     if not has_more or offset + page_limit >= total:
                         break
                     offset += page_limit
+                    # Small delay between pagination requests
+                    await asyncio.sleep(0.5)
                 elif isinstance(data, list):
                     filenames.extend(data)
                     break
@@ -166,6 +180,8 @@ class AcquisitionClient:
                 break
             files = await self._list_files_for_device(did, from_date, to_date)
             all_filenames.extend(files)
+            # Small delay between device listings to avoid burst
+            await asyncio.sleep(0.3)
 
         seen = set()
         unique: List[str] = []

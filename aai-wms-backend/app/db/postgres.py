@@ -1,3 +1,4 @@
+import asyncio
 import asyncpg
 from typing import List, Tuple, Any
 from app.core.config import settings
@@ -14,18 +15,32 @@ class PostgresManager:
         "raw_telemetry_audit",
     )
 
-    async def connect(self):
-        try:
-            # Note: The asyncpg DSN doesn't usually use the +asyncpg scheme
-            # like SQLAlchemy does, so we replace it if needed.
-            dsn = settings.postgres_connection_url.replace("postgresql+asyncpg://", "postgresql://")
-            ssl_opt = True if "sslmode=require" in settings.postgres_connection_url else None
-            self.pool = await asyncpg.create_pool(dsn=dsn, ssl=ssl_opt)
-            logger.info("PostgreSQL connected successfully")
-            await self.initialize_schema()
-        except Exception as e:
-            logger.error(f"Failed to connect to PostgreSQL: {e}")
-            raise
+    async def connect(self, max_retries: int = 3, retry_delay: float = 2.0):
+        for attempt in range(max_retries):
+            try:
+                # Note: The asyncpg DSN doesn't usually use the +asyncpg scheme
+                # like SQLAlchemy does, so we replace it if needed.
+                dsn = settings.postgres_connection_url.replace("postgresql+asyncpg://", "postgresql://")
+                ssl_opt = True if "sslmode=require" in settings.postgres_connection_url else None
+                self.pool = await asyncpg.create_pool(
+                    dsn=dsn, 
+                    ssl=ssl_opt,
+                    min_size=2,
+                    max_size=10,
+                    command_timeout=30,
+                    statement_cache_size=0,
+                )
+                logger.info("PostgreSQL connected successfully")
+                await self.initialize_schema()
+                return
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"PostgreSQL connection attempt {attempt + 1} failed: {e}. Retrying in {retry_delay}s...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    logger.error(f"Failed to connect to PostgreSQL after {max_retries} attempts: {e}")
+                    raise
 
     async def initialize_schema(self):
         # Schema ownership lives in db_init/01-init.sql, which Postgres runs

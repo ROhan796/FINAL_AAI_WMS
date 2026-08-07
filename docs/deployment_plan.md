@@ -24,15 +24,15 @@
 
 This document outlines the migration of the AAI Smart Washroom System from a fully local Docker-based deployment to a cloud-native architecture. The key change is:
 
-- **Keep ONLY HAProxy + Keepalived in Docker** (dual-node on Oracle Cloud Free Tier with VIP failover)
+- **Keep ONLY HAProxy on Hostinger VPS** (single Ubuntu VM, Docker Compose, Let's Encrypt SSL)
 - **Move ALL other services to cloud**: EMQX Cloud, Upstash Redis, NeonDB PostgreSQL, Render for FastAPI & DA Engine, Vercel for Next.js Portal
 
 ### Migration Scope
 
 | Component | Current State | Target State |
 |-----------|---------------|--------------|
-| HAProxy (x2) | Docker containers | Docker containers on Oracle Cloud Free Tier VMs |
-| Keepalived (x2) | Docker containers | Docker containers on Oracle Cloud Free Tier VMs |
+| HAProxy | Docker containers (x2) | Single container on Hostinger VPS (~$4-6/mo) |
+| Keepalived | Docker containers (x2) | Removed (single VPS, not needed) |
 | EMQX MQTT (x3) | Docker cluster | EMQX Cloud (managed) |
 | TimescaleDB | Docker container | NeonDB (serverless) |
 | Redis | Docker container | Upstash (serverless) |

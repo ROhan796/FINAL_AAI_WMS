@@ -155,10 +155,34 @@ app.include_router(ws_router)
 @app.get("/health")
 async def health_check():
     from app.realtime.hub import wms_realtime_hub
+    from app.db.postgres import db_manager
+    from app.db.redis import redis_manager
+    
+    # Check database connection
+    db_status = "connected" if db_manager.pool else "disconnected"
+    try:
+        if db_manager.pool:
+            async with db_manager.pool.acquire() as conn:
+                await conn.fetchval("SELECT 1")
+    except Exception as e:
+        db_status = f"error: {str(e)[:50]}"
+    
+    # Check Redis connection
+    redis_status = "connected"
+    try:
+        client = await redis_manager.get_client()
+        await client.ping()
+    except Exception as e:
+        redis_status = f"error: {str(e)[:50]}"
+    
     return {
         "status": "ok",
         "service": "wms-backend",
         "version": "2.0.0",
+        "connections": {
+            "database": db_status,
+            "redis": redis_status,
+        },
         "websocket": {
             "connected_clients": wms_realtime_hub.connection_count,
             "total_broadcasts": wms_realtime_hub.total_broadcasts,

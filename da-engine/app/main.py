@@ -43,7 +43,7 @@ async def startup_event():
     if restored:
         logger.info("Cache restored from Redis — skipping seed")
     else:
-        existing = cache_store.get_all_telemetry()
+        existing = await cache_store.get_all_telemetry()
         if len(existing) == 0:
             logger.info("Cache is empty — seeding 54 devices with mock telemetry...")
             _seed_initial_data()
@@ -116,7 +116,7 @@ def _seed_initial_data():
             throughput=round(occ * 4.5, 1),
         )
         telemetry_list.append(t)
-        cache_store.update_telemetry(did, t)
+        cache_store.telemetry_snapshots[did] = t
 
         for _ in range(9):
             hist = NormalizedTelemetry(
@@ -138,19 +138,19 @@ def _seed_initial_data():
                 peak_nh3_ppm=round(random.uniform(1, 40), 2),
                 throughput=round(random.uniform(0, 20), 1),
             )
-            cache_store.update_telemetry(did, hist)
+            cache_store.telemetry_snapshots[did] = hist
 
-    all_telemetry = cache_store.get_all_telemetry()
+    all_telemetry = list(cache_store.telemetry_snapshots.values())
     all_incidents = []
     for t in all_telemetry:
         detected = incident_detector.detect_breaches(t)
         for d in detected:
             d["device_id"] = t.device_id
         all_incidents.extend(detected)
-    cache_store.set_active_incidents(all_incidents)
+    cache_store.active_incidents = all_incidents
 
     summary = airport_aggregator.aggregate(all_telemetry, all_incidents)
-    cache_store.set_airport_summary(summary)
+    cache_store.airport_summary = summary
     logger.info(f"Seeded {len(DEVICES)} devices, {len(all_incidents)} incidents, avg WHI={summary.avg_whi:.1f}")
 
 @app.on_event("shutdown")

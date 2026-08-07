@@ -1,4 +1,5 @@
 import time
+import random
 import httpx
 from tenacity import (
     retry,
@@ -35,8 +36,18 @@ def _wait_strategy(retry_state: RetryCallState) -> float:
     if exc:
         ra = _get_retry_after(exc)
         if ra is not None:
-            logger.info(f"Retry-After header: waiting {ra:.1f}s")
-            return ra
+            # Add jitter: 50-150% of Retry-After value
+            jittered = ra * random.uniform(0.5, 1.5)
+            logger.info(f"Retry-After header: waiting {jittered:.1f}s (base: {ra:.1f}s)")
+            return jittered
+
+        # For 429 specifically, use longer base wait with jitter
+        if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
+            base_wait = min(2 ** retry_state.attempt_number * 5, 120)
+            jittered = base_wait * random.uniform(0.5, 1.5)
+            logger.warning(f"Rate limited (429): backoff {jittered:.1f}s (attempt {retry_state.attempt_number})")
+            return jittered
+
     return wait_exponential(multiplier=2, min=3, max=30)(retry_state)
 
 

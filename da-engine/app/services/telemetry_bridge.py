@@ -16,6 +16,7 @@ class TelemetryBridge:
         self.running = False
         self._task: asyncio.Task | None = None
         self._sync_interval = 30  # seconds, matches DA Engine polling interval
+        self._last_synced_hashes: dict[str, float] = {}  # device_id -> hash of last synced data
 
     async def connect(self):
         """Connect to WMS Backend PostgreSQL (supports NeonDB with SSL)."""
@@ -74,11 +75,11 @@ class TelemetryBridge:
             await asyncio.sleep(self._sync_interval)
 
     async def _sync_once(self, cache_store):
-        """Single sync pass: read all cached telemetry, bulk insert into PostgreSQL using COPY protocol."""
+        """Single sync pass: read cached telemetry, only insert changed records using COPY protocol."""
         if not self.pool:
             return
 
-        all_telemetry = cache_store.get_all_telemetry()
+        all_telemetry = await cache_store.get_all_telemetry()
         if not all_telemetry:
             return
 
@@ -94,19 +95,32 @@ class TelemetryBridge:
             else:
                 washroom_id = device_id
 
+            # Create a simple hash of key telemetry fields to detect changes
+            whi = getattr(telem, 'whi_score', 0.0)
+            nh3 = getattr(telem, 'ammonia_ppm', 0.0)
+            occ = getattr(telem, 'occupancy_count', 0)
+            temp = getattr(telem, 'temperature_celsius', 0.0)
+            hum = getattr(telem, 'humidity_pct', 0.0)
+            data_hash = f"{whi:.1f}:{nh3:.1f}:{occ}:{temp:.1f}:{hum:.1f}"
+
+            # Only sync if data has changed since last sync
+            if self._last_synced_hashes.get(device_id) == data_hash:
+                continue
+
+            self._last_synced_hashes[device_id] = data_hash
             rows.append((
                 now,                        # time
                 device_id,                  # device_id
                 terminal,                   # terminal
                 washroom_id,                # washroom_id
-                getattr(telem, 'ammonia_ppm', 0.0),       # avg_nh3_ppm
+                nh3,                        # avg_nh3_ppm
                 getattr(telem, 'peak_nh3_ppm', 0.0),      # peak_nh3_ppm
-                getattr(telem, 'temperature_celsius', 0.0), # avg_temperature_c
-                getattr(telem, 'humidity_pct', 0.0),       # avg_humidity_percent
+                temp,                       # avg_temperature_c
+                hum,                        # avg_humidity_percent
                 int(getattr(telem, 'throughput', 0)),       # throughput
-                int(getattr(telem, 'occupancy_count', 0)),  # occupancy_inside
-                None,                                        # abandon_rate_percent
-                getattr(telem, 'whi_score', 0.0),           # raw_whi
+                occ,                        # occupancy_inside
+                None,                       # abandon_rate_percent
+                whi,                        # raw_whi
             ))
 
         if not rows:
@@ -125,7 +139,7 @@ class TelemetryBridge:
                         'abandon_rate_percent', 'raw_whi'
                     ]
                 )
-            logger.debug(f"TelemetryBridge: Synced {len(rows)} records via COPY")
+            logger.debug(f"TelemetryBridge: Synced {len(rows)} changed records via COPY")
         except Exception as e:
             logger.error(f"TelemetryBridge: COPY insert failed, falling back to executemany: {e}")
             # Fallback to executemany if COPY fails

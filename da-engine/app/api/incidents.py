@@ -27,7 +27,7 @@ async def get_incidents(limit: int = 100) -> List[Dict[str, Any]]:
     incidents = []
 
     for device_id in all_device_ids:
-        telemetry = cache_store.get_telemetry(device_id)
+        telemetry = await cache_store.get_telemetry(device_id)
         if not telemetry:
             continue
 

@@ -27,37 +27,15 @@ async def websocket_endpoint(websocket: WebSocket):
     """
     await realtime_hub.connect(websocket)
     try:
-        # Send initial snapshot immediately on connect
+        # Send initial snapshot immediately on connect (optimized - only summary + top 20)
         from app.storage.cache import cache_store
-        from app.analytics.airport.aggregator import airport_aggregator
 
-        all_telemetry = cache_store.get_all_telemetry()
-        if all_telemetry:
-            telemetry_data = []
-            for t in all_telemetry:
-                telemetry_data.append({
-                    "device_id": t.device_id,
-                    "terminal_id": getattr(t, 'terminal_id', ''),
-                    "floor_level": getattr(t, 'floor_level', ''),
-                    "whi_score": getattr(t, 'whi_score', 0.0),
-                    "ammonia_ppm": getattr(t, 'ammonia_ppm', 0.0),
-                    "occupancy_count": getattr(t, 'occupancy_count', 0),
-                    "soap_pct": getattr(t, 'soap_pct', 0.0),
-                    "paper_pct": getattr(t, 'paper_pct', 0.0),
-                    "sanitizer_pct": getattr(t, 'sanitizer_pct', 0.0),
-                    "temperature_celsius": getattr(t, 'temperature_celsius', 0.0),
-                    "humidity_pct": getattr(t, 'humidity_pct', 0.0),
-                    "battery_pct": getattr(t, 'battery_pct', 0.0),
-                    "last_updated": getattr(t, 'recorded_at', ''),
-                })
-            await realtime_hub.broadcast_telemetry_update(telemetry_data)
-
-        incidents = cache_store.active_incidents
-        if incidents:
-            await realtime_hub.broadcast_incidents_update(incidents)
-
-        summary = cache_store.get_airport_summary()
+        all_telemetry = await cache_store.get_all_telemetry()
+        
+        # Always send summary (lightweight)
+        summary = await cache_store.get_airport_summary()
         if summary:
+            terminal_summaries = []
             terminals = {}
             for t in all_telemetry:
                 tid = getattr(t, 'terminal_id', 'Unknown')
@@ -66,7 +44,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 terminals[tid]['whi_scores'].append(getattr(t, 'whi_score', 0))
                 if getattr(t, 'whi_score', 0) < 60:
                     terminals[tid]['critical'] += 1
-            terminal_summaries = []
             for tid, data in terminals.items():
                 avg = sum(data['whi_scores']) / len(data['whi_scores']) if data['whi_scores'] else 0
                 terminal_summaries.append({
@@ -86,10 +63,11 @@ async def websocket_endpoint(websocket: WebSocket):
             }
             await realtime_hub.broadcast_summary_update(summary_dict)
 
-        # Broadcast live WHI with by_terminal
+        # Send top 20 WHI rankings (lightweight, no full telemetry)
         live_whi = []
         by_terminal = {}
-        for t in all_telemetry[:20]:
+        sorted_telemetry = sorted(all_telemetry, key=lambda t: getattr(t, 'whi_score', 0))
+        for t in sorted_telemetry[:20]:
             terminal_id = getattr(t, 'terminal_id', '')
             live_whi.append({
                 "device_id": t.device_id,
@@ -116,56 +94,10 @@ async def websocket_endpoint(websocket: WebSocket):
             "by_terminal": by_terminal_out,
         })
 
-        # Broadcast trends (hourly aggregation)
-        trends_data = {"hourly": [], "daily": []}
-        hourly_buckets = {}
-        for t in all_telemetry:
-            recorded = getattr(t, 'recorded_at', None)
-            if recorded:
-                hour_key = str(recorded)[:13]
-                if hour_key not in hourly_buckets:
-                    hourly_buckets[hour_key] = []
-                hourly_buckets[hour_key].append(getattr(t, 'whi_score', 0))
-        for hour_key in sorted(hourly_buckets.keys())[-24:]:
-            scores = hourly_buckets[hour_key]
-            trends_data["hourly"].append({
-                "hour": hour_key,
-                "avg_whi": round(sum(scores) / len(scores), 1) if scores else 0,
-                "count": len(scores),
-            })
-        await realtime_hub.broadcast_trends_update(trends_data)
-
-        # Broadcast washroom list with real-time scores
-        washroom_list = []
-        for t in all_telemetry:
-            washroom_list.append({
-                "device_id": t.device_id,
-                "terminal": getattr(t, 'terminal_id', ''),
-                "level": getattr(t, 'floor_level', ''),
-                "whi": getattr(t, 'whi_score', 0.0),
-                "status": "Good" if getattr(t, 'whi_score', 0) >= 80 else "Fair" if getattr(t, 'whi_score', 0) >= 60 else "Critical",
-                "ammonia_ppm": getattr(t, 'ammonia_ppm', 0.0),
-                "occupancy_count": getattr(t, 'occupancy_count', 0),
-                "temperature_celsius": getattr(t, 'temperature_celsius', 0.0),
-                "humidity_pct": getattr(t, 'humidity_pct', 0.0),
-                "battery_pct": getattr(t, 'battery_pct', 0.0),
-                "last_updated": str(getattr(t, 'recorded_at', '')),
-            })
-        await realtime_hub.broadcast_washrooms_update(washroom_list)
-
-        # Broadcast device status
-        devices = []
-        for t in all_telemetry:
-            devices.append({
-                "device_id": t.device_id,
-                "terminal": getattr(t, 'terminal_id', ''),
-                "level": getattr(t, 'floor_level', ''),
-                "battery_pct": getattr(t, 'battery_pct', 100.0),
-                "status": "ONLINE",
-                "last_ping": str(getattr(t, 'recorded_at', '')),
-                "type": getattr(t, 'device_type', 'PPM'),
-            })
-        await realtime_hub.broadcast_devices_update(devices)
+        # Send active incidents
+        incidents = cache_store.active_incidents
+        if incidents:
+            await realtime_hub.broadcast_incidents_update(incidents)
 
         # Keep connection alive, handle client messages
         while True:
@@ -173,6 +105,28 @@ async def websocket_endpoint(websocket: WebSocket):
             # Handle ping/pong heartbeat
             if data == "ping":
                 await websocket.send_text('{"type":"pong"}')
+            # Handle client request for full data
+            elif data == "request_full":
+                # Client requests full telemetry data (core sensing only - no consumables)
+                full_telemetry = await cache_store.get_all_telemetry()
+                telemetry_data = []
+                for t in full_telemetry:
+                    telemetry_data.append({
+                        "device_id": t.device_id,
+                        "terminal_id": getattr(t, 'terminal_id', ''),
+                        "floor_level": getattr(t, 'floor_level', ''),
+                        "whi_score": getattr(t, 'whi_score', 0.0),
+                        "ammonia_ppm": getattr(t, 'ammonia_ppm', 0.0),
+                        "occupancy_count": getattr(t, 'occupancy_count', 0),
+                        "temperature_celsius": getattr(t, 'temperature_celsius', 0.0),
+                        "humidity_pct": getattr(t, 'humidity_pct', 0.0),
+                        "battery_pct": getattr(t, 'battery_pct', 0.0),
+                        "signal_rssi": getattr(t, 'signal_rssi', 0.0),
+                        "peak_nh3_ppm": getattr(t, 'peak_nh3_ppm', 0.0),
+                        "throughput": getattr(t, 'throughput', 0.0),
+                        "last_updated": getattr(t, 'recorded_at', ''),
+                    })
+                await realtime_hub.broadcast_telemetry_update(telemetry_data)
     except WebSocketDisconnect:
         pass
     except Exception as e:

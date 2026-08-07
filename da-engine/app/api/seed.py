@@ -61,19 +61,19 @@ async def seed_telemetry(records: List[SeedRecord]):
             peak_nh3_ppm=rec.peak_nh3_ppm,
             throughput=rec.throughput,
         )
-        cache_store.update_telemetry(rec.device_id, telemetry)
+        await cache_store.update_telemetry(rec.device_id, telemetry)
 
-    all_telemetry = cache_store.get_all_telemetry()
+    all_telemetry = await cache_store.get_all_telemetry()
     all_incidents = []
     for t in all_telemetry:
         detected = incident_detector.detect_breaches(t)
         for d in detected:
             d["device_id"] = t.device_id
         all_incidents.extend(detected)
-    cache_store.set_active_incidents(all_incidents)
+    await cache_store.set_active_incidents(all_incidents)
 
     summary = airport_aggregator.aggregate(all_telemetry, all_incidents)
-    cache_store.set_airport_summary(summary)
+    await cache_store.set_airport_summary(summary)
 
     return {
         "status": "ok",

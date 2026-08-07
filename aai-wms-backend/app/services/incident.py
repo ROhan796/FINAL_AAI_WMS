@@ -25,21 +25,33 @@ class IncidentEngine:
         current_state = await self.redis.get(state_key) or IncidentState.NORMAL.value
 
         if whi >= settings.WHI_WARNING_THRESHOLD:
+            # WHI is good (>=50) - resolve any active incident
             if current_state == IncidentState.ACTIVE_INCIDENT.value:
                 await self._set_state(washroom_id, payload.terminal, IncidentState.RESOLVED.value, whi=whi, timestamp=payload.timestamp)
                 await self._set_state(washroom_id, payload.terminal, IncidentState.NORMAL.value, whi=whi, timestamp=payload.timestamp)
-            else:
+            elif current_state != IncidentState.NORMAL.value:
                 await self._set_state(washroom_id, payload.terminal, IncidentState.NORMAL.value, whi=whi, timestamp=payload.timestamp)
-            await self.redis.delete(debounce_key)          # was: await self.redis.set(debounce_key, 0)
+            # Clear debounce counter when WHI is good
+            await self.redis.delete(debounce_key)
 
-        elif whi >= settings.WHI_CRITICAL_THRESHOLD and whi < settings.WHI_WARNING_THRESHOLD:
-            await self._set_state(washroom_id, payload.terminal, IncidentState.PENDING_ALERT.value, whi=whi, timestamp=payload.timestamp)
-            await self.redis.delete(debounce_key)          # was: await self.redis.set(debounce_key, 0)
+        elif whi >= settings.WHI_CRITICAL_THRESHOLD:
+            # WHI is in warning range (30-50) - set pending alert
+            if current_state == IncidentState.ACTIVE_INCIDENT.value:
+                # Don't downgrade from ACTIVE_INCIDENT to PENDING_ALERT
+                pass
+            else:
+                await self._set_state(washroom_id, payload.terminal, IncidentState.PENDING_ALERT.value, whi=whi, timestamp=payload.timestamp)
+            # Clear debounce counter in warning range
+            await self.redis.delete(debounce_key)
 
         else:
-            if current_state != IncidentState.ACTIVE_INCIDENT.value:
+            # WHI is critical (<30) - increment debounce and potentially trigger incident
+            if current_state == IncidentState.ACTIVE_INCIDENT.value:
+                # Already active, no need to debounce again
+                pass
+            else:
                 debounce_count = await self.redis.incr(debounce_key)
-                await self.redis.expire(debounce_key, 3600)   # new line: TTL safety net
+                await self.redis.expire(debounce_key, 3600)  # TTL safety net
                 if debounce_count >= settings.DEBOUNCE_THRESHOLD:
                     await self._set_state(washroom_id, payload.terminal, IncidentState.ACTIVE_INCIDENT.value, whi=whi, timestamp=payload.timestamp)
                     await self.redis.delete(debounce_key)

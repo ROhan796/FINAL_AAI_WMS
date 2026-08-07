@@ -22,7 +22,7 @@ async def get_washroom_detail(device_id: str) -> Dict[str, Any]:
         )
 
     # Get telemetry from cache
-    telemetry = cache_store.get_telemetry(device_id)
+    telemetry = await cache_store.get_telemetry(device_id)
     if not telemetry:
         raise HTTPException(status_code=404, detail=f"No data found for device {device_id}")
 

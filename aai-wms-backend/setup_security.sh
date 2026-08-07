@@ -25,7 +25,7 @@ openssl genrsa -out certs/emqx/emqx-server.key 2048
 openssl req -new -key certs/emqx/emqx-server.key -out certs/emqx/emqx-server.csr \
   -subj "/CN=emqx.iot-network"
 
-echo "subjectAltName=DNS:emqx1.iot-network,DNS:emqx2.iot-network,DNS:emqx3.iot-network,IP:172.20.1.10,IP:172.20.2.10,IP:127.0.0.1" > certs/emqx/ext.cnf
+echo "subjectAltName=DNS:emqx1,DNS:emqx2,DNS:emqx3,DNS:localhost,IP:172.20.1.10,IP:172.20.2.10,IP:127.0.0.1" > certs/emqx/ext.cnf
 openssl x509 -req -days 825 -in certs/emqx/emqx-server.csr -CA certs/ca/ca.crt -CAkey certs/ca/ca.key \
   -CAcreateserial -out certs/emqx/emqx-server.crt -extfile certs/emqx/ext.cnf
 rm certs/emqx/ext.cnf
@@ -35,7 +35,7 @@ openssl genrsa -out certs/haproxy/api.key 2048
 openssl req -new -key certs/haproxy/api.key -out certs/haproxy/api.csr \
   -subj "/CN=api.iot-network"
 
-echo "subjectAltName=DNS:haproxy1.iot-network,DNS:haproxy2.iot-network,IP:172.20.1.10,IP:172.20.1.100,IP:172.20.1.101,IP:127.0.0.1" > certs/haproxy/ext.cnf
+echo "subjectAltName=DNS:haproxy1,DNS:haproxy2,DNS:localhost,IP:172.20.1.10,IP:172.20.1.100,IP:172.20.1.101,IP:127.0.0.1" > certs/haproxy/ext.cnf
 openssl x509 -req -days 825 -in certs/haproxy/api.csr -CA certs/ca/ca.crt -CAkey certs/ca/ca.key \
   -CAcreateserial -out certs/haproxy/api.crt -extfile certs/haproxy/ext.cnf
 rm certs/haproxy/ext.cnf
@@ -48,7 +48,7 @@ openssl genrsa -out certs/postgres/postgres.key 2048
 openssl req -new -key certs/postgres/postgres.key -out certs/postgres/postgres.csr \
   -subj "/CN=postgres.iot-network"
 
-echo "subjectAltName=DNS:washroom-timescaledb,IP:172.20.3.15,IP:127.0.0.1" > certs/postgres/ext.cnf
+echo "subjectAltName=DNS:timescaledb,DNS:localhost,IP:172.20.3.15,IP:127.0.0.1" > certs/postgres/ext.cnf
 openssl x509 -req -days 825 -in certs/postgres/postgres.csr -CA certs/ca/ca.crt -CAkey certs/ca/ca.key \
   -CAcreateserial -out certs/postgres/postgres.crt -extfile certs/postgres/ext.cnf
 rm certs/postgres/ext.cnf

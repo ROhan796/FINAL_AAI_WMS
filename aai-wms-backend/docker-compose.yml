@@ -9,13 +9,13 @@ services:
   emqx1:
     image: emqx:5.8@sha256:2eb7ca866279e39883a77e15af3fc6a8cef8399d590be76bd5439aca3897366d
     container_name: emqx1
-    hostname: emqx1.iot-network
+    hostname: emqx1
     restart: unless-stopped
     environment:
-      - EMQX_NODE__NAME=emqx1@emqx1.iot-network
+      - EMQX_NODE__NAME=emqx1@emqx1
       - EMQX_NODE__COOKIE=${EMQX_NODE_COOKIE}
       - EMQX_CLUSTER__DISCOVERY_STRATEGY=static
-      - EMQX_CLUSTER__STATIC__SEEDS=[emqx1@emqx1.iot-network,emqx2@emqx2.iot-network,emqx3@emqx3.iot-network]
+      - EMQX_CLUSTER__STATIC__SEEDS=[emqx1@emqx1,emqx2@emqx2,emqx3@emqx3]
       - EMQX_DASHBOARD__DEFAULT_USERNAME=${EMQX_DASHBOARD_USER}
       - EMQX_DASHBOARD__DEFAULT_PASSWORD=${EMQX_DASHBOARD_PASSWORD}
     healthcheck:
@@ -35,13 +35,13 @@ services:
   emqx2:
     image: emqx:5.8@sha256:2eb7ca866279e39883a77e15af3fc6a8cef8399d590be76bd5439aca3897366d
     container_name: emqx2
-    hostname: emqx2.iot-network
+    hostname: emqx2
     restart: unless-stopped
     environment:
-      - EMQX_NODE__NAME=emqx2@emqx2.iot-network
+      - EMQX_NODE__NAME=emqx2@emqx2
       - EMQX_NODE__COOKIE=${EMQX_NODE_COOKIE}
       - EMQX_CLUSTER__DISCOVERY_STRATEGY=static
-      - EMQX_CLUSTER__STATIC__SEEDS=[emqx1@emqx1.iot-network,emqx2@emqx2.iot-network,emqx3@emqx3.iot-network]
+      - EMQX_CLUSTER__STATIC__SEEDS=[emqx1@emqx1,emqx2@emqx2,emqx3@emqx3]
       - EMQX_DASHBOARD__DEFAULT_USERNAME=${EMQX_DASHBOARD_USER}
       - EMQX_DASHBOARD__DEFAULT_PASSWORD=${EMQX_DASHBOARD_PASSWORD}
     healthcheck:
@@ -61,13 +61,13 @@ services:
   emqx3:
     image: emqx:5.8@sha256:2eb7ca866279e39883a77e15af3fc6a8cef8399d590be76bd5439aca3897366d
     container_name: emqx3
-    hostname: emqx3.iot-network
+    hostname: emqx3
     restart: unless-stopped
     environment:
-      - EMQX_NODE__NAME=emqx3@emqx3.iot-network
+      - EMQX_NODE__NAME=emqx3@emqx3
       - EMQX_NODE__COOKIE=${EMQX_NODE_COOKIE}
       - EMQX_CLUSTER__DISCOVERY_STRATEGY=static
-      - EMQX_CLUSTER__STATIC__SEEDS=[emqx1@emqx1.iot-network,emqx2@emqx2.iot-network,emqx3@emqx3.iot-network]
+      - EMQX_CLUSTER__STATIC__SEEDS=[emqx1@emqx1,emqx2@emqx2,emqx3@emqx3]
       - EMQX_DASHBOARD__DEFAULT_USERNAME=${EMQX_DASHBOARD_USER}
       - EMQX_DASHBOARD__DEFAULT_PASSWORD=${EMQX_DASHBOARD_PASSWORD}
     healthcheck:

@@ -99,7 +99,7 @@ function AdminWashroomsContent() {
   }
 
   const handleRowClick = (deviceId: string) => {
-    router.push(`/terminal/washrooms/total-detail?device_id=${deviceId}`)
+    router.push(`/admin/terminals/${terminalId}/washrooms/${deviceId}`)
   }
 
   const filteredWashrooms = washrooms.filter((w) => {

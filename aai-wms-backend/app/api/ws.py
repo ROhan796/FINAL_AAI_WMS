@@ -29,26 +29,46 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         # Send current floor status immediately on connect
         from app.db.redis import get_redis
-        redis = await get_redis()
+        try:
+            redis = await get_redis()
+        except Exception as e:
+            logger.error(f"WMS WebSocket: Failed to connect to Redis: {e}")
+            redis = None
 
         floor_status = []
         terminals = ["T1", "T2", "T3"]
         floors = ["L1", "L2", "L3", "L4", "L5", "L6"]
 
-        for terminal in terminals:
-            for floor in floors:
-                status_key = f"state:floor:{terminal}:{floor}:status"
-                incidents_key = f"state:floor:{terminal}:{floor}:incidents"
+        if redis:
+            for terminal in terminals:
+                for floor in floors:
+                    status_key = f"state:floor:{terminal}:{floor}:status"
+                    incidents_key = f"state:floor:{terminal}:{floor}:incidents"
 
-                status = await redis.get(status_key) or "NORMAL"
-                incident_count = await redis.scard(incidents_key) or 0
+                    try:
+                        status = await redis.get(status_key) or "NORMAL"
+                        incident_count = await redis.scard(incidents_key) or 0
+                    except Exception as e:
+                        logger.warning(f"WMS WebSocket: Redis read error for {terminal}/{floor}: {e}")
+                        status = "NORMAL"
+                        incident_count = 0
 
-                floor_status.append({
-                    "terminal": terminal,
-                    "floor": floor,
-                    "status": status,
-                    "active_incidents": incident_count,
-                })
+                    floor_status.append({
+                        "terminal": terminal,
+                        "floor": floor,
+                        "status": status,
+                        "active_incidents": incident_count,
+                    })
+        else:
+            # Redis unavailable - return default status
+            for terminal in terminals:
+                for floor in floors:
+                    floor_status.append({
+                        "terminal": terminal,
+                        "floor": floor,
+                        "status": "NORMAL",
+                        "active_incidents": 0,
+                    })
 
         await wms_realtime_hub.broadcast_floor_status(floor_status)
 

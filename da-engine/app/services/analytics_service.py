@@ -66,20 +66,20 @@ class AnalyticsService:
                 })
                 
                 # 9. Cache Individual Snapshot
-                cache_store.update_telemetry(telemetry.device_id, telemetry)
+                await cache_store.update_telemetry(telemetry.device_id, telemetry)
                 
             except Exception as e:
                 logger.error(f"Failed to process telemetry payload: {e}")
                 
         # 10. Update Active Incidents in Cache
-        cache_store.set_active_incidents(incident_debouncer.get_all_active_incidents())
+        await cache_store.set_active_incidents(incident_debouncer.get_all_active_incidents())
         
         # 11. Run Hierarchical Rollups
-        all_telemetries = cache_store.get_all_telemetry()
+        all_telemetries = await cache_store.get_all_telemetry()
         active_incidents = cache_store.active_incidents
         
         airport_sum = airport_aggregator.aggregate(all_telemetries, active_incidents)
-        cache_store.set_airport_summary(airport_sum)
+        await cache_store.set_airport_summary(airport_sum)
         logger.info(f"Analytics cache compilation complete. Average WHI: {airport_sum.avg_whi}%")
 
 analytics_service = AnalyticsService()

@@ -233,23 +233,36 @@ class RoleChecker:
 async def verify_zone_access(washroom_id: str, current_user: dict = Depends(get_current_user)) -> dict:
     """
     ABAC Dependency: Verifies if the operator is assigned to the terminal zone of the washroom.
-    Fails closed with a 404 Not Found if the washroom_id is not mapped.
+    Resolution order:
+      1. Exact match in WASHROOM_TERMINAL_MAP
+      2. Prefix match: washroom_id starts with a known terminal prefix (e.g. "T1-L1-W01" → T1)
+      3. Fails closed with 404 if no mapping found
     """
     user_zone = current_user.get("zone")
+
+    # 1. Try exact map lookup
     terminal = settings.WASHROOM_TERMINAL_MAP.get(washroom_id)
-    
+
+    # 2. Try prefix-based resolution (e.g. "T1-L1-W01" → "T1")
+    if not terminal:
+        washroom_upper = washroom_id.upper()
+        for prefix, term in settings.TERMINAL_PREFIXES.items():
+            if washroom_upper.startswith(prefix):
+                terminal = term
+                break
+
     if not terminal:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Washroom ID '{washroom_id}' not found in terminal mapping configuration"
         )
-        
+
     if user_zone is not None and terminal != user_zone:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Operation not permitted: washroom is in terminal {terminal}, but you are assigned to {user_zone}"
         )
-        
+
     return current_user
 
 def is_time_in_shift(current: datetime.time, start: datetime.time, end: datetime.time) -> bool:
